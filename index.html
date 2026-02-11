@@ -301,6 +301,30 @@
                 </div>
             </div>
         </div>
+
+        <!-- RSS Feed Config Modal -->
+        <div class="modal-backdrop" id="rss-config-modal-backdrop" style="display: none;">
+            <div class="modal medium">
+                <div class="modal-header">
+                    <h3>Configure RSS Feed</h3>
+                    <button class="modal-close" id="rss-config-modal-close">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="rss-feeds-input">RSS Feed URLs (one per line)</label>
+                        <textarea id="rss-feeds-input" rows="6" placeholder="https://example.com/feed.xml&#10;https://another-site.com/rss"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <label for="rss-update-interval">Update Interval (seconds)</label>
+                        <input type="number" id="rss-update-interval" value="5" min="3" max="60" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="rss-config-cancel-btn" class="pill-button">Cancel</button>
+                    <button type="button" id="rss-config-add-btn" class="pill-button primary">Add to Deck</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="renderer.js"></script>

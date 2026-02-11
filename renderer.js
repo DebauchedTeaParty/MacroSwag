@@ -122,6 +122,100 @@ function setupEventListeners() {
         });
     }
 
+    // RSS Config modal
+    const rssConfigClose = document.getElementById('rss-config-modal-close');
+    const rssConfigCancel = document.getElementById('rss-config-cancel-btn');
+    const rssConfigAdd = document.getElementById('rss-config-add-btn');
+    const rssConfigBackdrop = document.getElementById('rss-config-modal-backdrop');
+    
+    if (rssConfigClose) {
+        rssConfigClose.addEventListener('click', closeRssConfigModal);
+    }
+    
+    if (rssConfigCancel) {
+        rssConfigCancel.addEventListener('click', closeRssConfigModal);
+    }
+    
+    if (rssConfigAdd) {
+        rssConfigAdd.addEventListener('click', async () => {
+            const feedsInput = document.getElementById('rss-feeds-input');
+            const intervalInput = document.getElementById('rss-update-interval');
+            
+            if (!feedsInput || !intervalInput) return;
+            
+            const feedUrls = feedsInput.value.split('\n').filter(url => url.trim());
+            const updateInterval = parseInt(intervalInput.value) || 5;
+            
+            if (feedUrls.length === 0) {
+                alert('Please enter at least one RSS feed URL');
+                return;
+            }
+            
+            // Find first empty slot
+            let targetSlot = -1;
+            for (let i = 0; i < 12; i++) {
+                if (!macros[i]) {
+                    targetSlot = i;
+                    break;
+                }
+            }
+            
+            if (targetSlot === -1) {
+                alert('Deck is full! Remove a macro first.');
+                return;
+            }
+            
+            // Create RSS widget
+            const id = 'macro-' + Date.now();
+            const newMacro = {
+                id,
+                label: 'RSS Feed',
+                type: 'library',
+                config: {
+                    widgetType: 'rss',
+                    feedUrls: feedUrls,
+                    updateInterval: updateInterval
+                },
+                iconData: null,
+                rssItems: [],
+                rssCurrentIndex: 0,
+                rssCurrentImage: null
+            };
+            
+            macros[targetSlot] = newMacro;
+            
+            // Fetch RSS feeds
+            try {
+                const items = await fetchRssFeeds(feedUrls);
+                newMacro.rssItems = items;
+                if (items.length > 0) {
+                    newMacro.rssCurrentIndex = 0;
+                    const firstItem = items[0];
+                    if (firstItem.image) {
+                        newMacro.rssCurrentImage = firstItem.image;
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching RSS feeds:', error);
+            }
+            
+            saveMacrosAndSettings();
+            renderDeckGrid();
+            closeRssConfigModal();
+            
+            // Start RSS updates
+            startRssUpdates(newMacro);
+        });
+    }
+    
+    if (rssConfigBackdrop) {
+        rssConfigBackdrop.addEventListener('click', (e) => {
+            if (e.target.id === 'rss-config-modal-backdrop') {
+                closeRssConfigModal();
+            }
+        });
+    }
+
     // Macro modal
     document.getElementById('macro-modal-close').addEventListener('click', closeMacroModal);
     document.getElementById('cancel-macro-btn').addEventListener('click', closeMacroModal);
@@ -283,6 +377,23 @@ function renderDeckGrid() {
                 widgetValue.classList.add('widget-value');
                 widgetValue.id = `widget-value-${macro.id}`;
                 widgetValue.textContent = '...';
+                
+                // Special handling for RSS feed - add URL display and background image
+                if (macro.config?.widgetType === 'rss') {
+                    const widgetUrl = document.createElement('div');
+                    widgetUrl.classList.add('widget-url');
+                    widgetUrl.id = `widget-url-${macro.id}`;
+                    widgetUrl.textContent = '';
+                    widgetContent.appendChild(widgetUrl);
+                    
+                    // Set background image if available
+                    if (macro.rssCurrentImage) {
+                        key.style.backgroundImage = `url(${macro.rssCurrentImage})`;
+                        key.style.backgroundSize = 'cover';
+                        key.style.backgroundPosition = 'center';
+                        key.style.backgroundRepeat = 'no-repeat';
+                    }
+                }
                 
                 widgetContent.appendChild(widgetIcon);
                 widgetContent.appendChild(widgetLabel);
@@ -1658,7 +1769,8 @@ function getWidgetIcon(widgetType) {
         memory: '🧠',
         disk: '💿',
         bandwidth: '📡',
-        clock: '🕐'
+        clock: '🕐',
+        rss: '📰'
     };
     return icons[widgetType] || '📊';
 }
@@ -1669,7 +1781,8 @@ function getWidgetLabel(widgetType) {
         memory: 'Memory',
         disk: 'Disk',
         bandwidth: 'Network',
-        clock: 'Clock'
+        clock: 'Clock',
+        rss: 'RSS Feed'
     };
     return labels[widgetType] || 'Widget';
 }
@@ -1737,6 +1850,19 @@ function updateWidgets() {
                 const seconds = String(now.getSeconds()).padStart(2, '0');
                 displayValue = `${hours}:${minutes}:${seconds}`;
                 break;
+            case 'rss':
+                // RSS feeds are handled separately with cycling
+                if (macro.rssItems && macro.rssItems.length > 0) {
+                    const currentItem = macro.rssItems[macro.rssCurrentIndex || 0];
+                    if (currentItem) {
+                        displayValue = currentItem.title || 'RSS Feed';
+                    } else {
+                        displayValue = 'Loading...';
+                    }
+                } else {
+                    displayValue = 'Loading...';
+                }
+                break;
             default:
                 displayValue = '...';
         }
@@ -1803,6 +1929,28 @@ function startWidgetUpdates() {
     widgetUpdateInterval = setInterval(() => {
         updateWidgets();
     }, 1000);
+    
+    // Start RSS updates for any RSS widgets
+    macros.filter(m => m && m.type === 'library' && m.config?.widgetType === 'rss').forEach(macro => {
+        // If RSS items haven't been loaded yet, fetch them
+        if (!macro.rssItems || macro.rssItems.length === 0) {
+            if (macro.config?.feedUrls && macro.config.feedUrls.length > 0) {
+                fetchRssFeeds(macro.config.feedUrls).then(items => {
+                    macro.rssItems = items;
+                    if (items.length > 0) {
+                        macro.rssCurrentIndex = 0;
+                        const firstItem = items[0];
+                        if (firstItem.image) {
+                            macro.rssCurrentImage = firstItem.image;
+                        }
+                        updateWidgets();
+                        renderDeckGrid(); // Re-render to show background image
+                    }
+                });
+            }
+        }
+        startRssUpdates(macro);
+    });
 }
 
 // Widget updates are restarted in renderDeckGrid itself
@@ -1838,6 +1986,12 @@ const AVAILABLE_WIDGETS = [
         label: 'Clock',
         icon: '🕐',
         description: 'Digital system time.'
+    },
+    {
+        type: 'rss',
+        label: 'RSS Feed',
+        icon: '📰',
+        description: 'Scroll through RSS headlines and images.'
     }
 ];
 
@@ -1902,9 +2056,13 @@ function openLibraryModal() {
             addWidgetToDeck(widget.type);
         });
         
-        // Click to add
+        // Click to add (or configure for RSS)
         preview.addEventListener('click', () => {
-            addWidgetToDeck(widget.type);
+            if (widget.type === 'rss') {
+                openRssConfigModal();
+            } else {
+                addWidgetToDeck(widget.type);
+            }
         });
         
         grid.appendChild(preview);
@@ -2042,6 +2200,165 @@ function addWidgetToDeck(widgetType) {
     closeLibraryModal();
 }
 
+// --- RSS Feed Functions ---
+let rssUpdateIntervals = {}; // Store intervals per RSS widget
+
+function openRssConfigModal() {
+    const backdrop = document.getElementById('rss-config-modal-backdrop');
+    const feedsInput = document.getElementById('rss-feeds-input');
+    const intervalInput = document.getElementById('rss-update-interval');
+    
+    if (!backdrop || !feedsInput || !intervalInput) return;
+    
+    // Clear previous values
+    feedsInput.value = '';
+    intervalInput.value = '5';
+    
+    backdrop.style.display = 'flex';
+}
+
+function closeRssConfigModal() {
+    const backdrop = document.getElementById('rss-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'none';
+    }
+}
+
+async function parseRssFeed(url) {
+    try {
+        // Use a CORS proxy or fetch from main process
+        // For now, we'll try direct fetch (may need CORS proxy)
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const text = await response.text();
+        
+        // Parse XML
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(text, 'text/xml');
+        
+        // Check for parsing errors
+        const parseError = xmlDoc.querySelector('parsererror');
+        if (parseError) {
+            throw new Error('Failed to parse RSS feed');
+        }
+        
+        // Extract items
+        const items = xmlDoc.querySelectorAll('item');
+        const rssItems = [];
+        
+        items.forEach(item => {
+            const title = item.querySelector('title')?.textContent || '';
+            const link = item.querySelector('link')?.textContent || '';
+            const description = item.querySelector('description')?.textContent || '';
+            
+            // Try to find image - check multiple possible locations
+            let image = null;
+            const mediaContent = item.querySelector('media\\:content, content, enclosure');
+            if (mediaContent) {
+                image = mediaContent.getAttribute('url') || mediaContent.getAttribute('href');
+            }
+            
+            // Try to extract image from description (HTML)
+            if (!image && description) {
+                const imgMatch = description.match(/<img[^>]+src=["']([^"']+)["']/i);
+                if (imgMatch) {
+                    image = imgMatch[1];
+                }
+            }
+            
+            // Try content:encoded or other fields
+            if (!image) {
+                const contentEncoded = item.querySelector('content\\:encoded, encoded');
+                if (contentEncoded) {
+                    const imgMatch = contentEncoded.textContent.match(/<img[^>]+src=["']([^"']+)["']/i);
+                    if (imgMatch) {
+                        image = imgMatch[1];
+                    }
+                }
+            }
+            
+            rssItems.push({
+                title: title.trim(),
+                link: link.trim(),
+                description: description.trim(),
+                image: image
+            });
+        });
+        
+        return rssItems;
+    } catch (error) {
+        console.error('Error parsing RSS feed:', url, error);
+        return [];
+    }
+}
+
+async function fetchRssFeeds(feedUrls) {
+    const allItems = [];
+    
+    for (const url of feedUrls) {
+        if (!url || !url.trim()) continue;
+        try {
+            const items = await parseRssFeed(url.trim());
+            allItems.push(...items);
+        } catch (error) {
+            console.error('Error fetching RSS feed:', url, error);
+        }
+    }
+    
+    // Sort by date if available, otherwise keep order
+    return allItems;
+}
+
+function startRssUpdates(macro) {
+    if (!macro || macro.config?.widgetType !== 'rss') return;
+    
+    // Clear existing interval for this macro
+    if (rssUpdateIntervals[macro.id]) {
+        clearInterval(rssUpdateIntervals[macro.id]);
+    }
+    
+    const updateInterval = macro.config?.updateInterval || 5; // seconds
+    
+    // Cycle through RSS items
+    rssUpdateIntervals[macro.id] = setInterval(() => {
+        if (macro.rssItems && macro.rssItems.length > 0) {
+            macro.rssCurrentIndex = (macro.rssCurrentIndex || 0) + 1;
+            if (macro.rssCurrentIndex >= macro.rssItems.length) {
+                macro.rssCurrentIndex = 0;
+            }
+            
+            const currentItem = macro.rssItems[macro.rssCurrentIndex];
+            if (currentItem) {
+                // Update widget display
+                const widgetValueEl = document.getElementById(`widget-value-${macro.id}`);
+                const widgetUrlEl = document.getElementById(`widget-url-${macro.id}`);
+                const keyEl = document.querySelector(`[data-macro-id="${macro.id}"]`);
+                
+                if (widgetValueEl) {
+                    widgetValueEl.textContent = currentItem.title || 'RSS Feed';
+                }
+                
+                if (widgetUrlEl) {
+                    widgetUrlEl.textContent = currentItem.link || '';
+                }
+                
+                // Update background image
+                if (keyEl && currentItem.image) {
+                    macro.rssCurrentImage = currentItem.image;
+                    keyEl.style.backgroundImage = `url(${currentItem.image})`;
+                    keyEl.style.backgroundSize = 'cover';
+                    keyEl.style.backgroundPosition = 'center';
+                    keyEl.style.backgroundRepeat = 'no-repeat';
+                } else if (keyEl) {
+                    keyEl.style.backgroundImage = '';
+                }
+            }
+        }
+    }, updateInterval * 1000);
+}
+
 window.addEventListener('beforeunload', () => {
     if (updateInterval) {
         clearInterval(updateInterval);
@@ -2055,5 +2372,9 @@ window.addEventListener('beforeunload', () => {
     if (window.libraryModalInterval) {
         clearInterval(window.libraryModalInterval);
     }
+    // Clear all RSS update intervals
+    Object.values(rssUpdateIntervals).forEach(interval => {
+        clearInterval(interval);
+    });
 });
 
