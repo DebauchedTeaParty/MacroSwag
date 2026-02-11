@@ -173,7 +173,18 @@ async function loadMacrosAndSettings() {
     try {
         const data = await window.electronAPI.getMacrosAndSettings();
         settings = data.settings || { theme: 'default' };
-        macros = Array.isArray(data.macros) ? data.macros : [];
+        const loadedMacros = Array.isArray(data.macros) ? data.macros : [];
+        
+        // Convert to slot-based array (12 slots, preserve positions)
+        // JSON null values become undefined for empty slots
+        macros = [];
+        for (let i = 0; i < 12; i++) {
+            macros[i] = (loadedMacros[i] !== null && loadedMacros[i] !== undefined) ? loadedMacros[i] : undefined;
+        }
+        
+        // Remove trailing undefined values (but keep slot positions for slots 0-11)
+        // Actually, let's keep the array as-is since we iterate by index in renderDeckGrid
+        
         applyTheme(settings.theme || 'default', false);
         renderDeckGrid();
         activateThemeChips();
@@ -183,9 +194,16 @@ async function loadMacrosAndSettings() {
 }
 
 function saveMacrosAndSettings() {
+    // Ensure macros array is slot-based (12 slots) before saving
+    // Pad with null (JSON-compatible) to preserve slot positions
+    const slotBasedMacros = [];
+    for (let i = 0; i < 12; i++) {
+        slotBasedMacros[i] = (macros[i] !== undefined && macros[i] !== null) ? macros[i] : null;
+    }
+    
     window.electronAPI.saveMacrosAndSettings({
         settings,
-        macros,
+        macros: slotBasedMacros,
     }).catch((e) => console.error('Error saving macros/settings:', e));
 }
 
@@ -392,17 +410,15 @@ function renderDeckGrid() {
                         return false;
                     }
                     
-                    // Remove from source
-                    macros.splice(sourceIndex, 1);
-                    
-                    // Insert at target (adjust index if source was before target)
-                    const insertIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
-                    macros.splice(insertIndex, 0, macroToMove);
-                    
-                    // Ensure array doesn't exceed 12 slots
-                    if (macros.length > 12) {
-                        macros = macros.slice(0, 12);
+                    // Ensure macros array has 12 slots (pad with undefined if needed)
+                    while (macros.length < 12) {
+                        macros.push(undefined);
                     }
+                    
+                    // Swap: exchange macros between source and target slots
+                    const existingAtTarget = macros[targetIndex];
+                    macros[sourceIndex] = existingAtTarget; // Put target's macro (or undefined) at source
+                    macros[targetIndex] = macroToMove; // Put source macro at target
                     
                     console.log('Macros after reorder:', macros.map((m, idx) => ({ idx, id: m?.id, label: m?.label })));
                     
@@ -515,8 +531,8 @@ function renderDeckGrid() {
                     return false;
                 }
                 
-                if (sourceIndex < 0 || sourceIndex >= macros.length) {
-                    console.error('Source index out of bounds:', sourceIndex);
+                if (sourceIndex < 0 || sourceIndex >= 12 || targetIndex < 0 || targetIndex >= 12) {
+                    console.error('Index out of bounds:', { sourceIndex, targetIndex });
                     return false;
                 }
                 
@@ -527,16 +543,14 @@ function renderDeckGrid() {
                     return false;
                 }
                 
-                // Remove from source
-                macros.splice(sourceIndex, 1);
-                
-                // Insert at target
-                macros.splice(targetIndex, 0, macroToMove);
-                
-                // Ensure array doesn't exceed 12 slots
-                if (macros.length > 12) {
-                    macros = macros.slice(0, 12);
+                // Ensure macros array has 12 slots (pad with undefined if needed)
+                while (macros.length < 12) {
+                    macros.push(undefined);
                 }
+                
+                // Direct slot assignment: move macro from source to target
+                macros[sourceIndex] = undefined; // Clear source slot
+                macros[targetIndex] = macroToMove; // Set target slot
                 
                 console.log('Macros after move to empty:', macros.map((m, idx) => ({ idx, id: m?.id, label: m?.label })));
                 
@@ -742,7 +756,8 @@ async function saveMacroFromModal() {
     }
 
     if (activeMacroId) {
-        const idx = macros.findIndex((m) => m.id === activeMacroId);
+        // Find macro by ID (could be at any slot index)
+        const idx = macros.findIndex((m) => m && m.id === activeMacroId);
         if (idx >= 0) {
             macros[idx] = {
                 ...macros[idx],
@@ -753,14 +768,28 @@ async function saveMacroFromModal() {
             };
         }
     } else {
+        // Find first empty slot (0-11)
+        let targetSlot = -1;
+        for (let i = 0; i < 12; i++) {
+            if (!macros[i]) {
+                targetSlot = i;
+                break;
+            }
+        }
+        
+        if (targetSlot === -1) {
+            alert('Deck is full! Remove a macro first.');
+            return;
+        }
+        
         const id = 'macro-' + Date.now();
-        macros.push({
+        macros[targetSlot] = {
             id,
             label,
             type,
             config,
             iconData,
-        });
+        };
     }
 
     console.log('Macros before save:', macros.length);
@@ -868,9 +897,10 @@ function setupContextMenu() {
             hideContextMenu();
             // Small delay to ensure menu is hidden before deleting
             setTimeout(() => {
-                const idx = macros.findIndex((m) => m.id === macroId);
+                // Find macro by ID and clear its slot (don't use splice, maintain slot positions)
+                const idx = macros.findIndex((m) => m && m.id === macroId);
                 if (idx >= 0) {
-                    macros.splice(idx, 1);
+                    macros[idx] = undefined; // Clear the slot, maintain position
                     saveMacrosAndSettings();
                     renderDeckGrid();
                 }
