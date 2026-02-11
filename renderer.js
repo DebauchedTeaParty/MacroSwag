@@ -1687,48 +1687,61 @@ function formatSpeed(bytesPerSecond) {
 }
 
 function updateWidgets() {
-    macros.forEach(macro => {
-        if (macro.type === 'library') {
-            const widgetValueEl = document.getElementById(`widget-value-${macro.id}`);
-            if (!widgetValueEl) return;
-            
-            const widgetType = macro.config?.widgetType || 'cpu';
-            let displayValue = '';
-            
-            switch (widgetType) {
-                case 'cpu':
-                    if (systemStats) {
-                        displayValue = `${Math.round(systemStats.cpu)}%`;
-                    }
-                    break;
-                case 'memory':
-                    if (systemStats) {
-                        displayValue = `${Math.round(systemStats.memory.percentage)}%`;
-                    }
-                    break;
-                case 'disk':
-                    if (systemStats) {
-                        displayValue = `${Math.round(systemStats.disk.percentage)}%`;
-                    }
-                    break;
-                case 'bandwidth':
-                    if (systemStats) {
-                        const downSpeed = systemStats.network.downloadSpeed || 0;
-                        const upSpeed = systemStats.network.uploadSpeed || 0;
-                        displayValue = `↓${formatSpeed(downSpeed)} ↑${formatSpeed(upSpeed)}`;
-                    }
-                    break;
-                case 'clock':
-                    const now = new Date();
-                    const hours = String(now.getHours()).padStart(2, '0');
-                    const minutes = String(now.getMinutes()).padStart(2, '0');
-                    const seconds = String(now.getSeconds()).padStart(2, '0');
-                    displayValue = `${hours}:${minutes}:${seconds}`;
-                    break;
-            }
-            
-            widgetValueEl.textContent = displayValue;
+    // Filter out undefined/null macros and only process library widgets
+    macros.filter(m => m && m.type === 'library').forEach(macro => {
+        const widgetValueEl = document.getElementById(`widget-value-${macro.id}`);
+        if (!widgetValueEl) {
+            // Element not found - might be because DOM was just re-rendered
+            // This is okay, it will be found on the next update cycle
+            return;
         }
+        
+        const widgetType = macro.config?.widgetType || 'cpu';
+        let displayValue = '';
+        
+        switch (widgetType) {
+            case 'cpu':
+                if (systemStats) {
+                    displayValue = `${Math.round(systemStats.cpu)}%`;
+                } else {
+                    displayValue = '...';
+                }
+                break;
+            case 'memory':
+                if (systemStats) {
+                    displayValue = `${Math.round(systemStats.memory.percentage)}%`;
+                } else {
+                    displayValue = '...';
+                }
+                break;
+            case 'disk':
+                if (systemStats) {
+                    displayValue = `${Math.round(systemStats.disk.percentage)}%`;
+                } else {
+                    displayValue = '...';
+                }
+                break;
+            case 'bandwidth':
+                if (systemStats) {
+                    const downSpeed = systemStats.network.downloadSpeed || 0;
+                    const upSpeed = systemStats.network.uploadSpeed || 0;
+                    displayValue = `↓${formatSpeed(downSpeed)} ↑${formatSpeed(upSpeed)}`;
+                } else {
+                    displayValue = '...';
+                }
+                break;
+            case 'clock':
+                const now = new Date();
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                const seconds = String(now.getSeconds()).padStart(2, '0');
+                displayValue = `${hours}:${minutes}:${seconds}`;
+                break;
+            default:
+                displayValue = '...';
+        }
+        
+        widgetValueEl.textContent = displayValue;
     });
 }
 
@@ -1744,32 +1757,49 @@ async function fetchSystemStats() {
 }
 
 function startWidgetUpdates() {
-    // Check if there are any library widgets
-    const hasWidgets = macros.some(m => m.type === 'library');
-    if (!hasWidgets) return;
+    // Check if there are any library widgets (filter out undefined)
+    const hasWidgets = macros.some(m => m && m.type === 'library');
+    if (!hasWidgets) {
+        // Clear intervals if no widgets
+        if (widgetUpdateInterval) {
+            clearInterval(widgetUpdateInterval);
+            widgetUpdateInterval = null;
+        }
+        if (window.systemStatsInterval) {
+            clearInterval(window.systemStatsInterval);
+            window.systemStatsInterval = null;
+        }
+        return;
+    }
     
-    // Initial update
-    updateWidgets();
+    // Clear existing intervals before starting new ones
+    if (widgetUpdateInterval) {
+        clearInterval(widgetUpdateInterval);
+        widgetUpdateInterval = null;
+    }
+    if (window.systemStatsInterval) {
+        clearInterval(window.systemStatsInterval);
+        window.systemStatsInterval = null;
+    }
+    
+    // Initial update (give DOM a moment to be ready)
+    setTimeout(() => {
+        updateWidgets();
+    }, 50);
     
     // Fetch system stats if there are system monitoring widgets
     const hasSystemWidgets = macros.some(m => 
-        m.type === 'library' && 
+        m && m.type === 'library' && 
         ['cpu', 'memory', 'disk', 'bandwidth'].includes(m.config?.widgetType)
     );
     
     if (hasSystemWidgets) {
         fetchSystemStats();
-        // Fetch system stats every 2 seconds (only create one interval)
-        if (window.systemStatsInterval) {
-            clearInterval(window.systemStatsInterval);
-        }
+        // Fetch system stats every 2 seconds
         window.systemStatsInterval = setInterval(fetchSystemStats, 2000);
     }
     
-    // Update all widgets every second (clock needs this)
-    if (widgetUpdateInterval) {
-        clearInterval(widgetUpdateInterval);
-    }
+    // Update all widgets every second (clock needs this, and all widgets benefit from regular updates)
     widgetUpdateInterval = setInterval(() => {
         updateWidgets();
     }, 1000);
