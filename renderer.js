@@ -581,9 +581,129 @@ function renderDeckGrid() {
                     }
                 }
 
+                // Special handling for Pomodoro timer - add buttons and phase display
+                if (macro.config?.widgetType === 'pomodoro') {
+                    // Initialize pomodoro state if not exists
+                    if (!macro.pomodoroState) {
+                        macro.pomodoroState = {
+                            timeRemaining: 25 * 60, // 25 minutes in seconds
+                            phase: 'work', // 'work', 'shortBreak', 'longBreak'
+                            isRunning: false,
+                            pomodoroCount: 0,
+                            startTime: null,
+                            pausedTime: 25 * 60
+                        };
+                    }
+
+                    // Get effective size for responsive styling
+                    const effectiveSize = Math.min(macro.size || 1, 3);
+                    const isSingleBlock = effectiveSize === 1;
+
+                    // Adjust widget value font size based on block size (reduced for height)
+                    widgetValue.style.fontSize = isSingleBlock ? '16px' : effectiveSize === 2 ? '20px' : '24px';
+                    widgetValue.style.fontWeight = '700';
+                    widgetValue.style.lineHeight = '1.1';
+                    widgetValue.style.marginBottom = '0';
+                    widgetValue.style.marginTop = '0';
+
+                    // Make label smaller for pomodoro
+                    widgetLabel.style.fontSize = isSingleBlock ? '8px' : '9px';
+                    widgetLabel.style.marginBottom = '0';
+                    widgetLabel.style.marginTop = '0';
+
+                    // Make icon smaller for pomodoro
+                    widgetIcon.style.fontSize = isSingleBlock ? '18px' : '20px';
+                    widgetIcon.style.marginBottom = '0';
+                    widgetIcon.style.marginTop = '0';
+
+                    // Reduce widget-content gap for pomodoro
+                    widgetContent.style.gap = isSingleBlock ? '1px' : '2px';
+
+                    const phaseDisplay = document.createElement('div');
+                    phaseDisplay.classList.add('pomodoro-phase');
+                    phaseDisplay.id = `pomodoro-phase-${macro.id}`;
+                    phaseDisplay.style.fontSize = isSingleBlock ? '8px' : '9px';
+                    phaseDisplay.style.color = 'var(--text-secondary)';
+                    phaseDisplay.style.marginTop = '0';
+                    phaseDisplay.style.marginBottom = '0';
+                    phaseDisplay.style.textAlign = 'center';
+                    phaseDisplay.style.whiteSpace = 'nowrap';
+                    phaseDisplay.style.overflow = 'hidden';
+                    phaseDisplay.style.textOverflow = 'ellipsis';
+                    phaseDisplay.style.width = '100%';
+                    phaseDisplay.style.lineHeight = '1.1';
+
+                    const pomodoroControls = document.createElement('div');
+                    pomodoroControls.classList.add('pomodoro-controls');
+                    pomodoroControls.style.display = 'flex';
+                    pomodoroControls.style.gap = isSingleBlock ? '4px' : '6px';
+                    pomodoroControls.style.marginTop = isSingleBlock ? '2px' : '3px';
+                    pomodoroControls.style.marginBottom = '0';
+                    pomodoroControls.style.justifyContent = 'center';
+                    pomodoroControls.style.flexWrap = 'wrap';
+                    pomodoroControls.style.width = '100%';
+
+                    const startPauseBtn = document.createElement('button');
+                    startPauseBtn.classList.add('pomodoro-btn');
+                    startPauseBtn.id = `pomodoro-start-pause-${macro.id}`;
+                    startPauseBtn.textContent = macro.pomodoroState.isRunning ? 'Pause' : 'Start';
+                    startPauseBtn.style.padding = isSingleBlock ? '3px 8px' : '4px 10px';
+                    startPauseBtn.style.fontSize = isSingleBlock ? '9px' : '10px';
+                    startPauseBtn.style.border = '1px solid var(--border-color)';
+                    startPauseBtn.style.borderRadius = '4px';
+                    startPauseBtn.style.background = 'var(--bg-secondary)';
+                    startPauseBtn.style.color = 'var(--text-primary)';
+                    startPauseBtn.style.cursor = 'pointer';
+                    startPauseBtn.style.whiteSpace = 'nowrap';
+                    startPauseBtn.style.flex = isSingleBlock ? '1' : '0 1 auto';
+                    startPauseBtn.style.minWidth = '0';
+
+                    const resetBtn = document.createElement('button');
+                    resetBtn.classList.add('pomodoro-btn');
+                    resetBtn.id = `pomodoro-reset-${macro.id}`;
+                    resetBtn.textContent = 'Reset';
+                    resetBtn.style.padding = isSingleBlock ? '3px 8px' : '4px 10px';
+                    resetBtn.style.fontSize = isSingleBlock ? '9px' : '10px';
+                    resetBtn.style.border = '1px solid var(--border-color)';
+                    resetBtn.style.borderRadius = '4px';
+                    resetBtn.style.background = 'var(--bg-secondary)';
+                    resetBtn.style.color = 'var(--text-primary)';
+                    resetBtn.style.cursor = 'pointer';
+                    resetBtn.style.whiteSpace = 'nowrap';
+                    resetBtn.style.flex = isSingleBlock ? '1' : '0 1 auto';
+                    resetBtn.style.minWidth = '0';
+
+                    pomodoroControls.appendChild(startPauseBtn);
+                    pomodoroControls.appendChild(resetBtn);
+
+                    // Store references for later appending in correct order
+                    widgetContent._pomodoroPhase = phaseDisplay;
+                    widgetContent._pomodoroControls = pomodoroControls;
+
+                    // Add click handlers
+                    startPauseBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        togglePomodoro(macro);
+                    });
+
+                    resetBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        resetPomodoro(macro);
+                    });
+                }
+
+                // Append elements in correct order: icon, label, value first
                 widgetContent.appendChild(widgetIcon);
                 widgetContent.appendChild(widgetLabel);
                 widgetContent.appendChild(widgetValue);
+                
+                // Then append pomodoro-specific elements if this is a pomodoro widget
+                if (macro.config?.widgetType === 'pomodoro' && widgetContent._pomodoroPhase && widgetContent._pomodoroControls) {
+                    widgetContent.appendChild(widgetContent._pomodoroPhase);
+                    widgetContent.appendChild(widgetContent._pomodoroControls);
+                    delete widgetContent._pomodoroPhase;
+                    delete widgetContent._pomodoroControls;
+                }
                 key.appendChild(widgetContent);
             } else {
                 // Regular macro rendering
@@ -2212,10 +2332,9 @@ function getWidgetIcon(widgetType) {
         disk: '💿',
         bandwidth: '📡',
         clock: '🕐',
-        bandwidth: '📡',
-        clock: '🕐',
         rss: '📰',
-        crypto: '💰'
+        crypto: '💰',
+        pomodoro: '🍅'
     };
     return icons[widgetType] || '📊';
 }
@@ -2227,10 +2346,9 @@ function getWidgetLabel(widgetType) {
         disk: 'Disk',
         bandwidth: 'Network',
         clock: 'Clock',
-        bandwidth: 'Network',
-        clock: 'Clock',
         rss: 'RSS Feed',
-        crypto: 'Cryptoticker'
+        crypto: 'Cryptoticker',
+        pomodoro: 'Pomodoro Timer'
     };
     return labels[widgetType] || 'Widget';
 }
@@ -2327,6 +2445,65 @@ function updateWidgets() {
                     displayValue = 'Loading...';
                 }
                 break;
+            case 'pomodoro':
+                // Initialize state if needed
+                if (!macro.pomodoroState) {
+                    macro.pomodoroState = {
+                        timeRemaining: 25 * 60,
+                        phase: 'work',
+                        isRunning: false,
+                        pomodoroCount: 0,
+                        startTime: null,
+                        pausedTime: 25 * 60
+                    };
+                }
+
+                const state = macro.pomodoroState;
+                
+                // Update timer if running
+                if (state.isRunning && state.startTime) {
+                    const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
+                    const newTime = state.pausedTime - elapsed;
+                    
+                    if (newTime <= 0) {
+                        // Timer finished - move to next phase
+                        state.timeRemaining = 0;
+                        completePomodoroPhase(macro);
+                    } else {
+                        state.timeRemaining = newTime;
+                    }
+                } else {
+                    // Not running, use pausedTime or timeRemaining
+                    if (state.pausedTime !== null) {
+                        state.timeRemaining = state.pausedTime;
+                    }
+                }
+
+                // Format time as MM:SS
+                const pomodoroMinutes = Math.floor(state.timeRemaining / 60);
+                const pomodoroSeconds = state.timeRemaining % 60;
+                displayValue = `${String(pomodoroMinutes).padStart(2, '0')}:${String(pomodoroSeconds).padStart(2, '0')}`;
+
+                // Update phase display
+                const phaseEl = document.getElementById(`pomodoro-phase-${macro.id}`);
+                if (phaseEl) {
+                    let phaseText = '';
+                    if (state.phase === 'work') {
+                        phaseText = `Work • ${state.pomodoroCount}/4`;
+                    } else if (state.phase === 'shortBreak') {
+                        phaseText = 'Short Break';
+                    } else if (state.phase === 'longBreak') {
+                        phaseText = 'Long Break';
+                    }
+                    phaseEl.textContent = phaseText;
+                }
+
+                // Update button text
+                const startPauseBtn = document.getElementById(`pomodoro-start-pause-${macro.id}`);
+                if (startPauseBtn) {
+                    startPauseBtn.textContent = state.isRunning ? 'Pause' : 'Start';
+                }
+                break;
             default:
                 displayValue = '...';
         }
@@ -2344,6 +2521,108 @@ async function fetchSystemStats() {
     } catch (error) {
         console.error('Error fetching system stats:', error);
     }
+}
+
+// Pomodoro Timer Functions
+function togglePomodoro(macro) {
+    if (!macro.pomodoroState) {
+        macro.pomodoroState = {
+            timeRemaining: 25 * 60,
+            phase: 'work',
+            isRunning: false,
+            pomodoroCount: 0,
+            startTime: null,
+            pausedTime: 25 * 60
+        };
+    }
+
+    const state = macro.pomodoroState;
+
+    if (state.isRunning) {
+        // Pause: save current time remaining
+        const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
+        state.pausedTime = Math.max(0, state.pausedTime - elapsed);
+        state.timeRemaining = state.pausedTime;
+        state.isRunning = false;
+        state.startTime = null;
+    } else {
+        // Start: record start time
+        state.isRunning = true;
+        state.startTime = Date.now();
+        if (state.pausedTime === null || state.pausedTime === undefined) {
+            state.pausedTime = state.timeRemaining;
+        }
+    }
+
+    saveMacrosAndSettings();
+    updateWidgets();
+}
+
+function resetPomodoro(macro) {
+    if (!macro.pomodoroState) {
+        macro.pomodoroState = {
+            timeRemaining: 25 * 60,
+            phase: 'work',
+            isRunning: false,
+            pomodoroCount: 0,
+            startTime: null,
+            pausedTime: 25 * 60
+        };
+    }
+
+    const state = macro.pomodoroState;
+    
+    // Reset to initial work state based on current phase
+    if (state.phase === 'work') {
+        state.timeRemaining = 25 * 60;
+        state.pausedTime = 25 * 60;
+    } else if (state.phase === 'shortBreak') {
+        state.timeRemaining = 5 * 60;
+        state.pausedTime = 5 * 60;
+    } else if (state.phase === 'longBreak') {
+        state.timeRemaining = 15 * 60;
+        state.pausedTime = 15 * 60;
+    }
+    
+    state.isRunning = false;
+    state.startTime = null;
+    // Keep pomodoroCount and phase - user might want to reset just the timer
+
+    saveMacrosAndSettings();
+    updateWidgets();
+}
+
+function completePomodoroPhase(macro) {
+    if (!macro.pomodoroState) return;
+
+    const state = macro.pomodoroState;
+
+    if (state.phase === 'work') {
+        state.pomodoroCount++;
+        
+        // After 4 pomodoros, take a long break
+        if (state.pomodoroCount >= 4) {
+            state.phase = 'longBreak';
+            state.timeRemaining = 15 * 60; // 15 minutes
+            state.pausedTime = 15 * 60;
+            state.pomodoroCount = 0; // Reset count after long break
+        } else {
+            state.phase = 'shortBreak';
+            state.timeRemaining = 5 * 60; // 5 minutes
+            state.pausedTime = 5 * 60;
+        }
+    } else if (state.phase === 'shortBreak' || state.phase === 'longBreak') {
+        // Break finished, back to work
+        state.phase = 'work';
+        state.timeRemaining = 25 * 60; // 25 minutes
+        state.pausedTime = 25 * 60;
+    }
+
+    state.isRunning = false;
+    state.startTime = null;
+
+    saveMacrosAndSettings();
+    updateWidgets();
 }
 
 function startWidgetUpdates() {
@@ -2498,6 +2777,12 @@ const AVAILABLE_WIDGETS = [
         label: 'Cryptoticker',
         icon: '💰',
         description: 'Live crypto prices via CoinMarketCap.'
+    },
+    {
+        type: 'pomodoro',
+        label: 'Pomodoro Timer',
+        icon: '🍅',
+        description: '25-minute work intervals with breaks.'
     }
 ];
 
@@ -2635,6 +2920,18 @@ function updateLibraryModalWidgets() {
                 break;
             case 'clock':
                 displayValue = getCurrentTime();
+                break;
+            case 'pomodoro':
+                // Find the macro for this pomodoro widget
+                const pomodoroMacro = macros.find(m => m && m.type === 'library' && m.config?.widgetType === 'pomodoro');
+                if (pomodoroMacro && pomodoroMacro.pomodoroState) {
+                    const state = pomodoroMacro.pomodoroState;
+                    const pomodoroMinutes = Math.floor(state.timeRemaining / 60);
+                    const pomodoroSeconds = state.timeRemaining % 60;
+                    displayValue = `${String(pomodoroMinutes).padStart(2, '0')}:${String(pomodoroSeconds).padStart(2, '0')}`;
+                } else {
+                    displayValue = '25:00';
+                }
                 break;
         }
 
