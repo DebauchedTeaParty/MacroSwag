@@ -18,6 +18,7 @@
             <div class="title-bar-center title-bar-drag"></div>
             <div class="title-bar-controls">
                 <button class="title-bar-button settings" id="settings-btn" title="Theme Settings">☼</button>
+                <button class="title-bar-button maximize" id="maximize-btn" title="Maximize">□</button>
                 <button class="title-bar-button minimize" id="minimize-btn" title="Minimize">−</button>
                 <button class="title-bar-button close" id="close-btn" title="Close">×</button>
             </div>
@@ -132,6 +133,11 @@
                 <div class="deck-grid" id="deck-grid">
                     <!-- Macro keys rendered by renderer.js -->
                 </div>
+                <div class="pagination-controls">
+                    <button id="page-prev-btn" class="pagination-btn" title="Previous Page">←</button>
+                    <span id="page-indicator" class="page-indicator">Page 1</span>
+                    <button id="page-next-btn" class="pagination-btn" title="Next Page">→</button>
+                </div>
             </div>
         </div>
 
@@ -200,7 +206,22 @@
                             <option value="disk">Disk Usage</option>
                             <option value="bandwidth">Network Bandwidth</option>
                             <option value="clock">Clock</option>
+                            <option value="rss">RSS Feed</option>
+                            <option value="crypto">Cryptoticker</option>
                         </select>
+                    </div>
+                    <div class="form-row" id="macro-config-crypto" style="display:none;">
+                        <label for="macro-crypto-api-key">CoinMarketCap API Key</label>
+                        <input type="password" id="macro-crypto-api-key" placeholder="Enter API Key" />
+                        <div style="font-size: 10px; margin-top: 4px; color: var(--text-muted);">
+                            Get your key at <a href="#"
+                                onclick="window.electronAPI.openExternal('https://pro.coinmarketcap.com/')"
+                                style="color: var(--text-primary); text-decoration: underline; cursor: pointer;">coinmarketcap.com</a>
+                        </div>
+
+                        <label for="macro-crypto-symbol" style="margin-top: 10px;">Asset Symbol</label>
+                        <input type="text" id="macro-crypto-symbol" placeholder="e.g. BTC"
+                            style="text-transform: uppercase;" />
                     </div>
                     <div class="form-row">
                         <label for="macro-icon">Icon (optional)</label>
@@ -239,6 +260,13 @@
                             <button class="theme-chip" data-theme="sunset">Sunset</button>
                             <button class="theme-chip" data-theme="neon">Neon</button>
                             <button class="theme-chip" data-theme="dark">Dark</button>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label for="num-pages-input">Number of Pages</label>
+                        <input type="number" id="num-pages-input" min="1" max="10" value="1" />
+                        <div style="font-size: 10px; margin-top: 4px; color: var(--text-muted);">
+                            Each page contains 30 macro slots (5 columns × 6 rows)
                         </div>
                     </div>
                 </div>
@@ -349,6 +377,44 @@
                 <div class="modal-footer">
                     <button type="button" id="rss-config-cancel-btn" class="pill-button">Cancel</button>
                     <button type="button" id="rss-config-add-btn" class="pill-button primary">Add to Deck</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cryptoticker Config Modal -->
+        <div class="modal-backdrop" id="crypto-config-modal-backdrop" style="display: none;">
+            <div class="modal medium">
+                <div class="modal-header">
+                    <h3>Configure Cryptoticker</h3>
+                    <button class="modal-close" id="crypto-config-modal-close">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="crypto-api-key">CoinMarketCap API Key</label>
+                        <input type="password" id="crypto-api-key" placeholder="Enter API Key" />
+                        <div style="font-size: 10px; margin-top: 4px; color: var(--text-muted);">
+                            Get your key at <a href="#"
+                                onclick="window.electronAPI.openExternal('https://pro.coinmarketcap.com/')"
+                                style="color: var(--text-primary); text-decoration: underline; cursor: pointer;">coinmarketcap.com</a>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label for="crypto-symbol">Asset Symbol</label>
+                        <input type="text" id="crypto-symbol" placeholder="e.g. BTC"
+                            style="text-transform: uppercase;" />
+                    </div>
+                    <div class="form-row">
+                        <label for="crypto-size">Size</label>
+                        <select id="crypto-size">
+                            <option value="1">1 Block (1x1)</option>
+                            <option value="2">2 Blocks (2x1)</option>
+                            <option value="3">3 Blocks (3x1)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="crypto-config-cancel-btn" class="pill-button">Cancel</button>
+                    <button type="button" id="crypto-config-add-btn" class="pill-button primary">Save</button>
                 </div>
             </div>
         </div>

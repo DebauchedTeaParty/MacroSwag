@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Window controls
   closeApp: () => ipcRenderer.send('close-app'),
+  maximizeApp: () => ipcRenderer.send('maximize-app'),
   minimizeApp: () => ipcRenderer.send('minimize-app'),
   focusWindow: () => ipcRenderer.send('focus-window'),
 
@@ -37,6 +38,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
 
   // Shell
-  openExternal: (url) => ipcRenderer.invoke('open-external', url)
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
+
+  // Crypto API
+  fetchCryptoPrice: (apiKey, symbol) => ipcRenderer.invoke('fetch-crypto-price', { apiKey, symbol })
 });
 

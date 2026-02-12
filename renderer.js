@@ -2,9 +2,50 @@
 let updateInterval = null;
 let isPlaying = false;
 let macros = [];
-let settings = { theme: 'default' };
+let settings = { theme: 'default', numPages: 1 };
 let editMode = false;
 let activeMacroId = null;
+let currentPage = 0;
+const SLOTS_PER_PAGE = 30;
+
+// Helper function to check if a slot is truly available (not occupied and not covered by a multi-slot macro)
+function isSlotAvailable(slotIndex) {
+    if (slotIndex < 0) return false;
+    
+    // Check if slot is occupied
+    if (macros[slotIndex]) return false;
+    
+    // Check if slot is covered by a previous multi-slot macro
+    // Check immediate left (slotIndex-1) for size >= 2
+    if (slotIndex > 0 && macros[slotIndex - 1] && (macros[slotIndex - 1].size || 1) >= 2) {
+        return false;
+    }
+    // Check 2 slots left (slotIndex-2) for size >= 3
+    if (slotIndex >= 2 && macros[slotIndex - 2] && (macros[slotIndex - 2].size || 1) >= 3) {
+        return false;
+    }
+    
+    return true;
+}
+
+// Helper function to find the first available slot
+function findFirstAvailableSlot(startIndex = 0) {
+    const numPages = settings.numPages || 1;
+    const totalSlots = SLOTS_PER_PAGE * numPages;
+    
+    // Ensure macros array is large enough
+    while (macros.length < totalSlots) {
+        macros.push(undefined);
+    }
+    
+    for (let i = startIndex; i < totalSlots; i++) {
+        if (isSlotAvailable(i)) {
+            return i;
+        }
+    }
+    
+    return -1; // No available slot found
+}
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -21,6 +62,10 @@ function setupEventListeners() {
     // Window controls
     document.getElementById('close-btn').addEventListener('click', () => {
         window.electronAPI.closeApp();
+    });
+
+    document.getElementById('maximize-btn').addEventListener('click', () => {
+        window.electronAPI.maximizeApp();
     });
 
     document.getElementById('minimize-btn').addEventListener('click', () => {
@@ -148,6 +193,32 @@ function setupEventListeners() {
         });
     }
 
+    // Crypto Config modal
+    const cryptoConfigClose = document.getElementById('crypto-config-modal-close');
+    const cryptoConfigCancel = document.getElementById('crypto-config-cancel-btn');
+    const cryptoConfigAdd = document.getElementById('crypto-config-add-btn');
+    const cryptoConfigBackdrop = document.getElementById('crypto-config-modal-backdrop');
+
+    if (cryptoConfigClose) {
+        cryptoConfigClose.addEventListener('click', closeCryptoConfigModal);
+    }
+
+    if (cryptoConfigCancel) {
+        cryptoConfigCancel.addEventListener('click', closeCryptoConfigModal);
+    }
+
+    if (cryptoConfigAdd) {
+        cryptoConfigAdd.addEventListener('click', saveCryptoConfig);
+    }
+
+    if (cryptoConfigBackdrop) {
+        cryptoConfigBackdrop.addEventListener('click', (e) => {
+            if (e.target.id === 'crypto-config-modal-backdrop') {
+                closeCryptoConfigModal();
+            }
+        });
+    }
+
     // Macro modal
     document.getElementById('macro-modal-close').addEventListener('click', closeMacroModal);
     document.getElementById('cancel-macro-btn').addEventListener('click', closeMacroModal);
@@ -192,24 +263,149 @@ function setupEventListeners() {
 
     // Keyboard shortcut recording
     setupKeyboardRecorder();
+
+    // Pagination controls
+    const pagePrevBtn = document.getElementById('page-prev-btn');
+    const pageNextBtn = document.getElementById('page-next-btn');
+    if (pagePrevBtn) {
+        pagePrevBtn.addEventListener('click', () => {
+            if (currentPage > 0) {
+                currentPage--;
+                renderDeckGrid();
+            }
+        });
+    }
+    if (pageNextBtn) {
+        pageNextBtn.addEventListener('click', () => {
+            const numPages = settings.numPages || 1;
+            if (currentPage < numPages - 1) {
+                currentPage++;
+                renderDeckGrid();
+            }
+        });
+    }
+
+    // Number of pages input
+    const numPagesInput = document.getElementById('num-pages-input');
+    if (numPagesInput) {
+        numPagesInput.addEventListener('change', (e) => {
+            const newNumPages = parseInt(e.target.value) || 1;
+            if (newNumPages >= 1 && newNumPages <= 10) {
+                const oldNumPages = settings.numPages || 1;
+                settings.numPages = newNumPages;
+                
+                // If reducing pages, make sure current page is valid
+                if (currentPage >= newNumPages) {
+                    currentPage = Math.max(0, newNumPages - 1);
+                }
+                
+                // Expand or contract macros array as needed
+                const totalSlots = SLOTS_PER_PAGE * newNumPages;
+                const oldTotalSlots = SLOTS_PER_PAGE * oldNumPages;
+                
+                if (newNumPages > oldNumPages) {
+                    // Expanding - add empty slots
+                    while (macros.length < totalSlots) {
+                        macros.push(undefined);
+                    }
+                } else if (newNumPages < oldNumPages) {
+                    // Contracting - trim excess slots (but warn if there are macros)
+                    const hasMacrosInRemovedPages = macros.slice(totalSlots, oldTotalSlots).some(m => m);
+                    if (hasMacrosInRemovedPages) {
+                        if (!confirm(`Reducing pages will remove macros on pages ${newNumPages + 1}-${oldNumPages}. Continue?`)) {
+                            e.target.value = oldNumPages;
+                            settings.numPages = oldNumPages;
+                            return;
+                        }
+                    }
+                    macros = macros.slice(0, totalSlots);
+                }
+                
+                saveMacrosAndSettings();
+                renderDeckGrid();
+            }
+        });
+    }
 }
 
 // --- Macros + settings ---
 async function loadMacrosAndSettings() {
     try {
         const data = await window.electronAPI.getMacrosAndSettings();
-        settings = data.settings || { theme: 'default' };
+        console.log('Loaded data:', { 
+            settings: data.settings, 
+            macrosLength: data.macros?.length,
+            macrosSample: data.macros?.slice(0, 5)
+        });
+        
+        settings = data.settings || { theme: 'default', numPages: 1 };
         const loadedMacros = Array.isArray(data.macros) ? data.macros : [];
 
-        // Convert to slot-based array (12 slots, preserve positions)
+        console.log('Loaded macros array length:', loadedMacros.length);
+        console.log('Loaded macros (first 10):', loadedMacros.slice(0, 10));
+
+        // Load ALL macros from saved data first (preserve everything)
+        // Convert to slot-based array (preserve positions)
         // JSON null values become undefined for empty slots
         macros = [];
-        for (let i = 0; i < 12; i++) {
-            macros[i] = (loadedMacros[i] !== null && loadedMacros[i] !== undefined) ? loadedMacros[i] : undefined;
+        
+        // Count how many actual macros we have
+        let macroCount = 0;
+        let highestIndex = -1;
+        
+        // Load all macros, finding the highest index with a macro
+        for (let i = 0; i < loadedMacros.length; i++) {
+            const macro = (loadedMacros[i] !== null && loadedMacros[i] !== undefined) ? loadedMacros[i] : undefined;
+            macros[i] = macro;
+            if (macro) {
+                macroCount++;
+                highestIndex = i;
+            }
         }
 
-        // Remove trailing undefined values (but keep slot positions for slots 0-11)
-        // Actually, let's keep the array as-is since we iterate by index in renderDeckGrid
+        console.log(`Loaded ${macroCount} macros into slots 0-${highestIndex} (array length: ${macros.length})`);
+        
+        // If we found macros, ensure the array is at least as long as the highest index
+        if (highestIndex >= 0 && macros.length <= highestIndex) {
+            console.warn(`Array length (${macros.length}) is less than highest macro index (${highestIndex}), expanding...`);
+            while (macros.length <= highestIndex) {
+                macros.push(undefined);
+            }
+        }
+
+        // Calculate total slots based on number of pages
+        const numPages = settings.numPages || 1;
+        const totalSlots = SLOTS_PER_PAGE * numPages;
+
+        // Ensure we have at least enough slots for the configured number of pages
+        // But don't truncate if we have more macros than that (preserve existing data)
+        while (macros.length < totalSlots) {
+            macros.push(undefined);
+        }
+        
+        // If we have more macros than the current numPages allows, auto-expand numPages
+        const actualSlotsNeeded = Math.ceil(macros.length / SLOTS_PER_PAGE);
+        if (actualSlotsNeeded > numPages) {
+            console.log(`Auto-expanding pages from ${numPages} to ${actualSlotsNeeded} to preserve existing macros`);
+            settings.numPages = actualSlotsNeeded;
+        }
+
+        // Ensure current page is valid
+        const finalNumPages = settings.numPages || 1;
+        if (currentPage >= finalNumPages || currentPage < 0) {
+            currentPage = Math.max(0, finalNumPages - 1);
+            console.log(`Adjusted current page to ${currentPage} (valid range: 0-${finalNumPages - 1})`);
+        }
+
+        console.log(`Final state: ${macros.length} total slots, ${finalNumPages} pages, current page: ${currentPage}`);
+        console.log(`Macros in current page range (${currentPage * SLOTS_PER_PAGE}-${(currentPage + 1) * SLOTS_PER_PAGE - 1}):`, 
+            macros.slice(currentPage * SLOTS_PER_PAGE, (currentPage + 1) * SLOTS_PER_PAGE).filter(m => m).map(m => ({ id: m.id, label: m.label })));
+
+        // Update settings modal with current numPages value (use settings.numPages in case it was auto-expanded)
+        const numPagesInput = document.getElementById('num-pages-input');
+        if (numPagesInput) {
+            numPagesInput.value = settings.numPages || 1;
+        }
 
         applyTheme(settings.theme || 'default', false);
         renderDeckGrid();
@@ -220,10 +416,25 @@ async function loadMacrosAndSettings() {
 }
 
 function saveMacrosAndSettings() {
-    // Ensure macros array is slot-based (12 slots) before saving
+    // Save ALL macros (preserve everything, not just current numPages)
+    // Convert to slot-based array before saving
     // Pad with null (JSON-compatible) to preserve slot positions
     const slotBasedMacros = [];
-    for (let i = 0; i < 12; i++) {
+    
+    // Find the highest index with a macro to determine how many slots to save
+    let maxIndex = -1;
+    for (let i = 0; i < macros.length; i++) {
+        if (macros[i] !== undefined && macros[i] !== null) {
+            maxIndex = i;
+        }
+    }
+    
+    // Save all slots up to the highest macro, plus ensure we have at least numPages worth
+    const numPages = settings.numPages || 1;
+    const minSlots = SLOTS_PER_PAGE * numPages;
+    const slotsToSave = Math.max(maxIndex + 1, minSlots);
+    
+    for (let i = 0; i < slotsToSave; i++) {
         slotBasedMacros[i] = (macros[i] !== undefined && macros[i] !== null) ? macros[i] : null;
     }
 
@@ -253,6 +464,11 @@ function activateThemeChips() {
 }
 
 function openSettingsModal() {
+    // Update num pages input with current value
+    const numPagesInput = document.getElementById('num-pages-input');
+    if (numPagesInput) {
+        numPagesInput.value = settings.numPages || 1;
+    }
     document.getElementById('settings-modal-backdrop').style.display = 'flex';
 }
 
@@ -275,18 +491,33 @@ function renderDeckGrid() {
         widgetUpdateInterval = null;
     }
     const grid = document.getElementById('deck-grid');
+    if (!grid) {
+        console.error('deck-grid element not found!');
+        return;
+    }
     grid.innerHTML = '';
 
-    const totalSlots = 12; // 4 x 3 grid
-    const filled = Math.min(macros.length, totalSlots);
+    const numPages = settings.numPages || 1;
+    const startIndex = currentPage * SLOTS_PER_PAGE;
+    const endIndex = startIndex + SLOTS_PER_PAGE;
 
-    for (let i = 0; i < totalSlots; i++) {
+    console.log(`Rendering page ${currentPage + 1}/${numPages}, slots ${startIndex}-${endIndex - 1}`);
+    console.log(`Macros array length: ${macros.length}, macros in range:`, macros.slice(startIndex, endIndex).filter(m => m).length);
+
+    // Update pagination controls
+    updatePaginationControls();
+
+    for (let i = startIndex; i < endIndex; i++) {
+        // Calculate relative index for this page (0-29)
+        const pageRelativeIndex = i - startIndex;
+        
         // Skip rendering if this slot is covered by a previous large macro
-        if (i > 0) {
+        // Only check within the current page to avoid cross-page issues
+        if (pageRelativeIndex > 0) {
             // Check previous slots to see if any extend into this one
             let covered = false;
             // Check immediate left (i-1) for size >= 2
-            if (macros[i - 1] && (macros[i - 1].size || 1) >= 2) covered = true;
+            if (i > 0 && macros[i - 1] && (macros[i - 1].size || 1) >= 2) covered = true;
             // Check 2 slots left (i-2) for size >= 3
             if (i >= 2 && macros[i - 2] && (macros[i - 2].size || 1) >= 3) covered = true;
 
@@ -299,8 +530,8 @@ function renderDeckGrid() {
 
         // Apply size class if macro exists, capping it to available columns
         if (macro && macro.size > 1) {
-            const colIndex = i % 4; // 0-3
-            const availableCols = 4 - colIndex;
+            const colIndex = pageRelativeIndex % 5; // 0-4
+            const availableCols = 5 - colIndex;
             const effectiveSize = Math.min(macro.size, availableCols);
 
             if (effectiveSize > 1) {
@@ -382,7 +613,7 @@ function renderDeckGrid() {
             // Drag and drop for reordering in edit mode
             if (editMode) {
                 key.draggable = true;
-                key.dataset.macroIndex = i;
+                key.dataset.macroIndex = i; // Use absolute index, not page-relative
 
                 key.addEventListener('dragstart', (e) => {
                     e.dataTransfer.effectAllowed = 'move';
@@ -420,12 +651,92 @@ function renderDeckGrid() {
                     e.stopPropagation();
                     key.classList.remove('drag-over');
 
-                    // Check if this is a library widget being dragged from the library modal
+                    // Check for existing macro move first (text/plain data takes priority)
+                    const sourceIndexStr = e.dataTransfer.getData('text/plain');
+                    if (sourceIndexStr) {
+                        // This is an existing macro being moved - handle the swap
+                        const sourceIndex = parseInt(sourceIndexStr);
+                        const targetIndex = i;
+
+                        console.log('Drop event:', { sourceIndex, targetIndex, macrosLength: macros.length });
+
+                        if (isNaN(sourceIndex) || isNaN(targetIndex)) {
+                            console.error('Invalid indices:', { sourceIndex, targetIndex });
+                            return false;
+                        }
+
+                        if (sourceIndex === targetIndex) {
+                            console.log('Same index, no move needed');
+                            return false;
+                        }
+
+                        if (sourceIndex < 0 || sourceIndex >= macros.length) {
+                            console.error('Source index out of bounds:', sourceIndex);
+                            return false;
+                        }
+
+                        // Get the macro to move
+                        const macroToMove = macros[sourceIndex];
+                        if (!macroToMove) {
+                            console.error('No macro at source index:', sourceIndex);
+                            return false;
+                        }
+
+                        // Ensure macros array has enough slots (pad with undefined if needed)
+                        const numPages = settings.numPages || 1;
+                        const totalSlots = SLOTS_PER_PAGE * numPages;
+                        while (macros.length < totalSlots) {
+                            macros.push(undefined);
+                        }
+
+                        // If target slot is occupied, move the existing widget to the next available slot
+                        const existingAtTarget = macros[targetIndex];
+                        if (existingAtTarget) {
+                            // Find next available slot for the existing widget (starting after target)
+                            const nextAvailableSlot = findFirstAvailableSlot(targetIndex + 1);
+                            if (nextAvailableSlot !== -1) {
+                                macros[nextAvailableSlot] = existingAtTarget;
+                                console.log(`Moved existing widget from slot ${targetIndex} to slot ${nextAvailableSlot}`);
+                            } else {
+                                // No available slot found, do a swap instead
+                                macros[sourceIndex] = existingAtTarget;
+                                console.log('No available slot found, swapping instead');
+                            }
+                        }
+                        
+                        // Always clear the source slot and place the dragged macro at the target
+                        macros[sourceIndex] = undefined;
+                        macros[targetIndex] = macroToMove;
+
+                        console.log('Macros after reorder:', macros.map((m, idx) => ({ idx, id: m?.id, label: m?.label })));
+
+                        // Save and re-render
+                        saveMacrosAndSettings();
+                        renderDeckGrid();
+
+                        return false;
+                    }
+
+                    // Only check for library widget if no existing macro is being moved
                     const libraryData = e.dataTransfer.getData('application/json');
                     if (libraryData) {
                         try {
                             const data = JSON.parse(libraryData);
                             if (data.type === 'library' && data.widgetType) {
+                                // If target slot is occupied, move the existing widget to the next available slot
+                                const existingAtTarget = macros[i];
+                                if (existingAtTarget) {
+                                    const nextAvailableSlot = findFirstAvailableSlot(i + 1);
+                                    if (nextAvailableSlot !== -1) {
+                                        macros[nextAvailableSlot] = existingAtTarget;
+                                        console.log(`Moved existing widget from slot ${i} to slot ${nextAvailableSlot}`);
+                                    } else {
+                                        alert('Deck is full! Cannot move existing widget. Remove a macro first or add more pages in settings.');
+                                        return false;
+                                    }
+                                }
+                                
+                                // Add the new library widget to the target slot
                                 const id = 'macro-' + Date.now();
                                 macros[i] = {
                                     id,
@@ -445,9 +756,7 @@ function renderDeckGrid() {
                         }
                     }
 
-                    // Regular macro reordering
-                    const sourceIndexStr = e.dataTransfer.getData('text/plain');
-                    if (!sourceIndexStr) return false;
+                    return false;
 
                     const sourceIndex = parseInt(sourceIndexStr);
                     const targetIndex = i;
@@ -476,8 +785,10 @@ function renderDeckGrid() {
                         return false;
                     }
 
-                    // Ensure macros array has 12 slots (pad with undefined if needed)
-                    while (macros.length < 12) {
+                    // Ensure macros array has enough slots (pad with undefined if needed)
+                    const numPages = settings.numPages || 1;
+                    const totalSlots = SLOTS_PER_PAGE * numPages;
+                    while (macros.length < totalSlots) {
                         macros.push(undefined);
                     }
 
@@ -564,13 +875,71 @@ function renderDeckGrid() {
                 e.stopPropagation();
                 key.classList.remove('drag-over');
 
-                // Check if this is a library widget being dragged from library modal
+                // Check for existing macro move first (text/plain data takes priority)
+                const sourceIndexStr = e.dataTransfer.getData('text/plain');
+                if (sourceIndexStr) {
+                    // Regular macro move to empty slot (only in edit mode)
+                    if (!editMode) return false;
+
+                    const sourceIndex = parseInt(sourceIndexStr);
+                    const targetIndex = i;
+
+                    console.log('Drop to empty slot:', { sourceIndex, targetIndex, macrosLength: macros.length });
+
+                    if (isNaN(sourceIndex) || isNaN(targetIndex)) {
+                        console.error('Invalid indices:', { sourceIndex, targetIndex });
+                        return false;
+                    }
+
+                    const numPages = settings.numPages || 1;
+                    const totalSlots = SLOTS_PER_PAGE * numPages;
+                    if (sourceIndex < 0 || sourceIndex >= totalSlots || targetIndex < 0 || targetIndex >= totalSlots) {
+                        console.error('Index out of bounds:', { sourceIndex, targetIndex, totalSlots });
+                        return false;
+                    }
+
+                    // Get the macro to move
+                    const macroToMove = macros[sourceIndex];
+                    if (!macroToMove) {
+                        console.error('No macro at source index:', sourceIndex);
+                        return false;
+                    }
+
+                    // Ensure macros array has enough slots (pad with undefined if needed)
+                    // numPages and totalSlots already declared above
+                    while (macros.length < totalSlots) {
+                        macros.push(undefined);
+                    }
+
+                    // Direct slot assignment: move macro from source to target
+                    macros[sourceIndex] = undefined; // Clear source slot
+                    macros[targetIndex] = macroToMove; // Set target slot
+
+                    console.log('Macros after move to empty:', macros.map((m, idx) => ({ idx, id: m?.id, label: m?.label })));
+
+                    // Save and re-render
+                    saveMacrosAndSettings();
+                    renderDeckGrid();
+
+                    return false;
+                }
+
+                // Only check for library widget if no existing macro is being moved
                 const libraryData = e.dataTransfer.getData('application/json');
                 if (libraryData) {
                     try {
                         const data = JSON.parse(libraryData);
                         if (data.type === 'library' && data.widgetType) {
-                            // Add widget to this empty slot
+                            // For RSS and Crypto, open config modal instead of adding directly
+                            if (data.widgetType === 'rss') {
+                                openRssConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'crypto') {
+                                openCryptoConfigModal();
+                                return false;
+                            }
+                            
+                            // Add widget to this empty slot for other widget types
                             const id = 'macro-' + Date.now();
                             macros[i] = {
                                 id,
@@ -590,11 +959,7 @@ function renderDeckGrid() {
                     }
                 }
 
-                // Regular macro move to empty slot (only in edit mode)
-                if (!editMode) return false;
-
-                const sourceIndexStr = e.dataTransfer.getData('text/plain');
-                if (!sourceIndexStr) return false;
+                return false;
 
                 const sourceIndex = parseInt(sourceIndexStr);
                 const targetIndex = i;
@@ -606,8 +971,10 @@ function renderDeckGrid() {
                     return false;
                 }
 
-                if (sourceIndex < 0 || sourceIndex >= 12 || targetIndex < 0 || targetIndex >= 12) {
-                    console.error('Index out of bounds:', { sourceIndex, targetIndex });
+                const numPages = settings.numPages || 1;
+                const totalSlots = SLOTS_PER_PAGE * numPages;
+                if (sourceIndex < 0 || sourceIndex >= totalSlots || targetIndex < 0 || targetIndex >= totalSlots) {
+                    console.error('Index out of bounds:', { sourceIndex, targetIndex, totalSlots });
                     return false;
                 }
 
@@ -618,8 +985,9 @@ function renderDeckGrid() {
                     return false;
                 }
 
-                // Ensure macros array has 12 slots (pad with undefined if needed)
-                while (macros.length < 12) {
+                // Ensure macros array has enough slots (pad with undefined if needed)
+                // numPages and totalSlots already declared above
+                while (macros.length < totalSlots) {
                     macros.push(undefined);
                 }
 
@@ -673,6 +1041,23 @@ function renderDeckGrid() {
     }, 100);
 }
 
+function updatePaginationControls() {
+    const numPages = settings.numPages || 1;
+    const prevBtn = document.getElementById('page-prev-btn');
+    const nextBtn = document.getElementById('page-next-btn');
+    const indicator = document.getElementById('page-indicator');
+    
+    if (prevBtn) {
+        prevBtn.disabled = currentPage === 0 || numPages <= 1;
+    }
+    if (nextBtn) {
+        nextBtn.disabled = currentPage >= numPages - 1 || numPages <= 1;
+    }
+    if (indicator) {
+        indicator.textContent = numPages > 0 ? `Page ${currentPage + 1} of ${numPages}` : 'Page 1 of 1';
+    }
+}
+
 function openMacroModal(macro) {
     console.log('openMacroModal called with:', macro);
     activeMacroId = macro ? macro.id : null;
@@ -699,18 +1084,12 @@ function openMacroModal(macro) {
     const urlInput = document.getElementById('macro-url');
     const appPathInput = document.getElementById('macro-app-path');
     const appArgsInput = document.getElementById('macro-app-args');
+    const cryptoApiKeyInput = document.getElementById('macro-crypto-api-key');
+    const cryptoSymbolInput = document.getElementById('macro-crypto-symbol');
     const iconInput = document.getElementById('macro-icon');
 
-    if (!labelInput || !typeSelect || !keysInput || !urlInput || !appPathInput || !appArgsInput || !iconInput) {
-        console.error('One or more macro modal form elements are missing', {
-            labelInput: !!labelInput,
-            typeSelect: !!typeSelect,
-            keysInput: !!keysInput,
-            urlInput: !!urlInput,
-            appPathInput: !!appPathInput,
-            appArgsInput: !!appArgsInput,
-            iconInput: !!iconInput,
-        });
+    if (!labelInput || !typeSelect || !keysInput || !urlInput || !appPathInput || !appArgsInput || !cryptoApiKeyInput || !cryptoSymbolInput || !iconInput) {
+        console.error('One or more macro modal form elements are missing');
         return;
     }
 
@@ -750,6 +1129,11 @@ function openMacroModal(macro) {
     urlInput.value = macro?.config?.url || '';
     appPathInput.value = macro?.config?.path || '';
     appArgsInput.value = macro?.config?.args || '';
+
+    // Crypto config
+    cryptoApiKeyInput.value = macro?.config?.apiKey || '';
+    cryptoSymbolInput.value = macro?.config?.symbol || '';
+
     iconInput.value = '';
 
     // Reset icon preview
@@ -765,6 +1149,24 @@ function openMacroModal(macro) {
     }
 
     updateMacroTypeVisibility();
+
+    // Hide type and icon fields for library widgets (they should only show Label and Size)
+    const typeRow = typeSelect.closest('.form-row');
+    const iconRow = iconInput.closest('.form-row');
+    const libraryConfigRow = document.getElementById('macro-config-library');
+    
+    if (type === 'library') {
+        // Hide type field for library widgets
+        if (typeRow) typeRow.style.display = 'none';
+        // Hide icon field for library widgets
+        if (iconRow) iconRow.style.display = 'none';
+        // Hide library widget type selector (they're already configured)
+        if (libraryConfigRow) libraryConfigRow.style.display = 'none';
+    } else {
+        // Show type and icon fields for regular macros
+        if (typeRow) typeRow.style.display = '';
+        if (iconRow) iconRow.style.display = '';
+    }
 
     // Delete button visibility
     const deleteBtn = document.getElementById('delete-macro-btn');
@@ -816,13 +1218,40 @@ function updateMacroTypeVisibility() {
     const keyboardRow = document.getElementById('macro-config-keyboard');
     const websiteRow = document.getElementById('macro-config-website');
     const appRow = document.getElementById('macro-config-app');
+    const libraryRow = document.getElementById('macro-config-library');
+    const cryptoRow = document.getElementById('macro-config-crypto');
 
     if (keyboardRow) keyboardRow.style.display = type === 'keyboard' ? '' : 'none';
     if (websiteRow) websiteRow.style.display = type === 'website' ? '' : 'none';
     if (appRow) appRow.style.display = type === 'app' ? '' : 'none';
 
-    // If it's a library widget, we only show standard fields (Label, Size, Icon)
-    // which are always visible, so no specific config row to show.
+    // Library widget specific configs
+    if (type === 'library') {
+        const widgetType = document.getElementById('macro-widget-type').value; // This might be hidden if we are editing? 
+        // Actually for library widgets we largely hide the type selector in the main modal
+        // But if we are editing a library widget, we might show specific configs based on widget type
+
+        // However, the current modal structure separates library widget *selection* (Library Modal) from *configuration* (Edit Modal)
+        // In Edit Modal for a library widget, we typically just show Label, Size, Icon
+
+        // BUT for Crypto, we DO need to show configuration in the Edit Modal
+        if (activeMacroId) {
+            const macro = macros.find(m => m && m.id === activeMacroId);
+            if (macro && macro.config && macro.config.widgetType === 'crypto') {
+                if (cryptoRow) cryptoRow.style.display = '';
+            } else {
+                if (cryptoRow) cryptoRow.style.display = 'none';
+            }
+        } else {
+            if (cryptoRow) cryptoRow.style.display = 'none';
+        }
+
+        // Hide standard library dropdown in edit mode as we don't change widget type there
+        if (libraryRow) libraryRow.style.display = 'none';
+    } else {
+        if (libraryRow) libraryRow.style.display = 'none';
+        if (cryptoRow) cryptoRow.style.display = 'none';
+    }
 }
 
 async function saveMacroFromModal() {
@@ -847,18 +1276,30 @@ async function saveMacroFromModal() {
             const existing = macros.find(m => m && m.id === activeMacroId);
             if (existing && existing.config) {
                 Object.assign(config, existing.config);
+
+                // If it's a crypto widget, save specific config
+                if (existing.config.widgetType === 'crypto') {
+                    config.apiKey = document.getElementById('macro-crypto-api-key').value.trim();
+                    config.symbol = document.getElementById('macro-crypto-symbol').value.trim().toUpperCase();
+                    // Reset cache so we fetch new data immediately
+                    delete existing.cryptoData;
+                    delete existing.lastCryptoUpdate;
+                }
             }
         }
     }
 
     // Handle icon upload - use cropped version if available, otherwise use file
+    // Don't allow icon upload for library widgets
     let iconData = null;
-    if (currentCropImage) {
-        iconData = currentCropImage;
-    } else {
-        const iconInput = document.getElementById('macro-icon');
-        if (iconInput.files && iconInput.files[0]) {
-            iconData = await readFileAsDataURL(iconInput.files[0]);
+    if (type !== 'library') {
+        if (currentCropImage) {
+            iconData = currentCropImage;
+        } else {
+            const iconInput = document.getElementById('macro-icon');
+            if (iconInput.files && iconInput.files[0]) {
+                iconData = await readFileAsDataURL(iconInput.files[0]);
+            }
         }
     }
 
@@ -872,22 +1313,23 @@ async function saveMacroFromModal() {
                 type,
                 size,
                 config,
-                iconData: iconData || macros[idx].iconData,
+                // Only update iconData for non-library widgets
+                iconData: type !== 'library' ? (iconData || macros[idx].iconData) : macros[idx].iconData,
             };
         }
     } else {
-        // Find first empty slot (0-11)
-        let targetSlot = -1;
-        for (let i = 0; i < 12; i++) {
-            if (!macros[i]) {
-                targetSlot = i;
-                break;
-            }
-        }
+        // Find first available slot across all pages
+        const targetSlot = findFirstAvailableSlot(0);
 
         if (targetSlot === -1) {
-            alert('Deck is full! Remove a macro first.');
+            alert('Deck is full! Remove a macro first or add more pages in settings.');
             return;
+        }
+
+        // Switch to the page where the macro is being added
+        const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
+        if (targetPage !== currentPage) {
+            currentPage = targetPage;
         }
 
         const id = 'macro-' + Date.now();
@@ -934,15 +1376,10 @@ function showMacroContextMenu(event, macro) {
     const deleteBtn = document.getElementById('context-delete');
 
     if (editBtn) {
-        let showEdit = true;
-        if (macro && macro.type === 'library') {
-            if (!macro.config || macro.config.widgetType !== 'rss') {
-                showEdit = false;
-            }
-        }
-
+        // Allow editing for all macros and widgets
+        // Library widgets can be edited to change size, and RSS/Crypto can change config
         editBtn.textContent = macro ? 'Edit' : 'Add Macro';
-        editBtn.style.display = showEdit ? 'block' : 'none';
+        editBtn.style.display = 'block';
     }
 
     if (deleteBtn) {
@@ -1775,7 +2212,10 @@ function getWidgetIcon(widgetType) {
         disk: '💿',
         bandwidth: '📡',
         clock: '🕐',
-        rss: '📰'
+        bandwidth: '📡',
+        clock: '🕐',
+        rss: '📰',
+        crypto: '💰'
     };
     return icons[widgetType] || '📊';
 }
@@ -1787,7 +2227,10 @@ function getWidgetLabel(widgetType) {
         disk: 'Disk',
         bandwidth: 'Network',
         clock: 'Clock',
-        rss: 'RSS Feed'
+        bandwidth: 'Network',
+        clock: 'Clock',
+        rss: 'RSS Feed',
+        crypto: 'Cryptoticker'
     };
     return labels[widgetType] || 'Widget';
 }
@@ -1864,6 +2307,22 @@ function updateWidgets() {
                     } else {
                         displayValue = 'Loading...';
                     }
+                } else {
+                    displayValue = 'Loading...';
+                }
+                break;
+            case 'crypto':
+                if (macro.cryptoData) {
+                    const price = macro.cryptoData.price;
+                    const change = macro.cryptoData.percent_change_24h;
+                    // Format price
+                    let formattedPrice = '$' + price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    if (price < 1) formattedPrice = '$' + price.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+
+                    const arrow = change >= 0 ? '↑' : '↓';
+                    displayValue = `${macro.config.symbol || ''} ${formattedPrice} ${arrow}${Math.abs(change).toFixed(1)}%`;
+                } else if (macro.cryptoError) {
+                    displayValue = 'Error';
                 } else {
                     displayValue = 'Loading...';
                 }
@@ -1951,11 +2410,47 @@ function startWidgetUpdates() {
                         updateWidgets();
                         renderDeckGrid(); // Re-render to show background image
                     }
+                    updateWidgets();
                 });
             }
         }
         startRssUpdates(macro);
     });
+
+    // Update Crypto widgets
+    macros.filter(m => m && m.type === 'library' && m.config?.widgetType === 'crypto').forEach(macro => {
+        const now = Date.now();
+        // Update every 60 seconds or if no data
+        if (!macro.lastCryptoUpdate || (now - macro.lastCryptoUpdate > 60000)) {
+            fetchCryptoData(macro).then(() => {
+                updateWidgets();
+            });
+        }
+    });
+}
+
+async function fetchCryptoData(macro) {
+    if (!macro.config?.apiKey || !macro.config?.symbol) {
+        macro.cryptoError = 'Config missing';
+        return;
+    }
+
+    try {
+        macro.lastCryptoUpdate = Date.now();
+        const data = await window.electronAPI.fetchCryptoPrice(macro.config.apiKey, macro.config.symbol);
+
+        if (data.error) {
+            console.error('Crypto API Error:', data.error);
+            macro.cryptoError = data.error;
+            macro.cryptoData = null;
+        } else {
+            macro.cryptoData = data;
+            macro.cryptoError = null;
+        }
+    } catch (err) {
+        console.error('Error fetching crypto:', err);
+        macro.cryptoError = err.message;
+    }
 }
 
 // Widget updates are restarted in renderDeckGrid itself
@@ -1997,6 +2492,12 @@ const AVAILABLE_WIDGETS = [
         label: 'RSS Feed',
         icon: '📰',
         description: 'Scroll through RSS headlines and images.'
+    },
+    {
+        type: 'crypto',
+        label: 'Cryptoticker',
+        icon: '💰',
+        description: 'Live crypto prices via CoinMarketCap.'
     }
 ];
 
@@ -2061,10 +2562,12 @@ function openLibraryModal() {
             addWidgetToDeck(widget.type);
         });
 
-        // Click to add (or configure for RSS)
+        // Click to add (or configure for RSS/Crypto)
         preview.addEventListener('click', () => {
             if (widget.type === 'rss') {
                 openRssConfigModal();
+            } else if (widget.type === 'crypto') {
+                openCryptoConfigModal();
             } else {
                 addWidgetToDeck(widget.type);
             }
@@ -2174,18 +2677,18 @@ function getCurrentTime() {
 }
 
 function addWidgetToDeck(widgetType) {
-    // Find first empty slot or add to end
-    let targetIndex = macros.length;
-    for (let i = 0; i < 12; i++) {
-        if (!macros[i]) {
-            targetIndex = i;
-            break;
-        }
+    // Find first available slot across all pages
+    const targetIndex = findFirstAvailableSlot(0);
+
+    if (targetIndex === -1) {
+        alert('Deck is full! Remove a macro first or add more pages in settings.');
+        return;
     }
 
-    if (targetIndex >= 12) {
-        alert('Deck is full! Remove a macro first.');
-        return;
+    // Switch to the page where the widget is being added
+    const targetPage = Math.floor(targetIndex / SLOTS_PER_PAGE);
+    if (targetPage !== currentPage) {
+        currentPage = targetPage;
     }
 
     const id = 'macro-' + Date.now();
@@ -2203,6 +2706,7 @@ function addWidgetToDeck(widgetType) {
     saveMacrosAndSettings();
     renderDeckGrid();
     closeLibraryModal();
+    return newMacro;
 }
 
 // --- RSS Feed Functions ---
@@ -2461,17 +2965,18 @@ async function saveRssConfig() {
         }
     } else {
         // Creating new macro
-        // Find first empty slot
-        for (let i = 0; i < 12; i++) {
-            if (!macros[i]) {
-                targetSlot = i;
-                break;
-            }
-        }
+        // Find first available slot across all pages
+        targetSlot = findFirstAvailableSlot(0);
 
         if (targetSlot === -1) {
-            alert('Deck is full! Remove a macro first.');
+            alert('Deck is full! Remove a macro first or add more pages in settings.');
             return;
+        }
+
+        // Switch to the page where the macro is being added
+        const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
+        if (targetPage !== currentPage) {
+            currentPage = targetPage;
         }
 
         const id = 'macro-' + Date.now();
@@ -2519,14 +3024,137 @@ async function saveRssConfig() {
     }
 }
 
+// --- Crypto Config Functions ---
+
+function openCryptoConfigModal(macro) {
+    activeMacroId = macro ? macro.id : null;
+
+    const apiKeyInput = document.getElementById('crypto-api-key');
+    const symbolInput = document.getElementById('crypto-symbol');
+
+    if (macro && macro.config) {
+        apiKeyInput.value = macro.config.apiKey || '';
+        symbolInput.value = macro.config.symbol || '';
+        const sizeSelect = document.getElementById('crypto-size');
+        if (sizeSelect) sizeSelect.value = macro.size || 1;
+    } else {
+        apiKeyInput.value = '';
+        symbolInput.value = '';
+        const sizeSelect = document.getElementById('crypto-size');
+        if (sizeSelect) sizeSelect.value = 1;
+    }
+
+    const backdrop = document.getElementById('crypto-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'flex';
+    }
+}
+
+function closeCryptoConfigModal() {
+    const backdrop = document.getElementById('crypto-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'none';
+    }
+}
+
+async function saveCryptoConfig() {
+    const apiKeyInput = document.getElementById('crypto-api-key');
+    const symbolInput = document.getElementById('crypto-symbol');
+
+    if (!apiKeyInput || !symbolInput) return;
+
+    const apiKey = apiKeyInput.value.trim();
+    const symbol = symbolInput.value.trim().toUpperCase();
+    const size = parseInt(document.getElementById('crypto-size').value) || 1;
+
+    if (!apiKey || !symbol) {
+        alert('Please enter both API Key and Asset Symbol');
+        return;
+    }
+
+    let targetSlot = -1;
+    let newMacro = null;
+
+    if (activeMacroId) {
+        // Updating existing macro
+        const idx = macros.findIndex(m => m && m.id === activeMacroId);
+        if (idx >= 0) {
+            targetSlot = idx;
+            // Get existing macro to preserve other props if needed
+            const existing = macros[idx];
+            newMacro = {
+                ...existing,
+                size,
+                config: {
+                    ...existing.config,
+                    widgetType: 'crypto',
+                    apiKey,
+                    symbol
+                }
+            };
+            // Reset cache so we fetch new data immediately
+            delete existing.cryptoData;
+            delete existing.lastCryptoUpdate;
+        }
+    } else {
+        // Creating new macro
+        // Find first available slot across all pages
+        targetSlot = findFirstAvailableSlot(0);
+
+        if (targetSlot === -1) {
+            alert('Deck is full! Remove a macro first or add more pages in settings.');
+            return;
+        }
+
+        // Switch to the page where the macro is being added
+        const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
+        if (targetPage !== currentPage) {
+            currentPage = targetPage;
+        }
+
+        const id = 'macro-' + Date.now();
+        newMacro = {
+            id,
+            label: 'Cryptoticker',
+            type: 'library',
+            size,
+            config: {
+                widgetType: 'crypto',
+                apiKey: apiKey,
+                symbol: symbol
+            },
+            iconData: null
+        };
+    }
+
+    if (targetSlot !== -1 && newMacro) {
+        macros[targetSlot] = newMacro;
+
+        saveMacrosAndSettings();
+        renderDeckGrid();
+        closeCryptoConfigModal();
+    }
+}
+
 // --- Central Edit Logic ---
 
 function editMacro(macro) {
     if (!macro) return;
 
+    // Switch to the page where this macro is located
+    const macroIndex = macros.findIndex(m => m && m.id === macro.id);
+    if (macroIndex >= 0) {
+        const macroPage = Math.floor(macroIndex / SLOTS_PER_PAGE);
+        if (macroPage !== currentPage) {
+            currentPage = macroPage;
+        }
+    }
+
     if (macro.type === 'library') {
         if (macro.config && macro.config.widgetType === 'rss') {
             openRssConfigModal(macro);
+        } else if (macro.config && macro.config.widgetType === 'crypto') {
+            openCryptoConfigModal(macro);
         } else {
             // Other library widgets use the standard modal (restricted view)
             openMacroModal(macro);

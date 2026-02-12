@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, shell, globalShortcut, dialog } = require('electron');
+const axios = require('axios');
 const path = require('path');
 const { exec } = require('child_process');
 const os = require('os');
@@ -13,7 +14,7 @@ let macroStore = null;
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 900,
-    height: 600,
+    height: 700,
     minWidth: 700,
     minHeight: 500,
     frame: false,
@@ -149,6 +150,16 @@ ipcMain.handle('seek-to-position', async (event, percentage) => {
 // IPC Handlers - Window / App
 ipcMain.on('close-app', () => {
   app.quit();
+});
+
+ipcMain.on('maximize-app', () => {
+  if (mainWindow) {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow.maximize();
+    }
+  }
 });
 
 ipcMain.on('minimize-app', () => {
@@ -460,6 +471,41 @@ async function getAllSystemStats() {
 // IPC handler for system stats
 ipcMain.handle('get-system-stats', async () => {
   return await getAllSystemStats();
+});
+
+// IPC handler for Crypto API
+ipcMain.handle('fetch-crypto-price', async (event, { apiKey, symbol }) => {
+  try {
+    if (!apiKey || !symbol) {
+      throw new Error('API Key and Symbol are required');
+    }
+
+    const response = await axios.get('https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest', {
+      headers: {
+        'X-CMC_PRO_API_KEY': apiKey
+      },
+      params: {
+        symbol: symbol,
+        convert: 'USD'
+      }
+    });
+
+    const data = response.data.data[symbol];
+    if (!data) {
+      throw new Error(`Symbol ${symbol} not found`);
+    }
+
+    return {
+      name: data.name,
+      symbol: data.symbol,
+      price: data.quote.USD.price,
+      percent_change_24h: data.quote.USD.percent_change_24h
+    };
+  } catch (error) {
+    console.error('Error fetching crypto price:', error.message);
+    // Return error structure rather than throwing to avoid crashing renderer
+    return { error: error.response?.data?.status?.error_message || error.message };
+  }
 });
 
 // IPC handler for file dialog
