@@ -600,11 +600,12 @@ function renderDeckGrid() {
                     const isSingleBlock = effectiveSize === 1;
 
                     // Adjust widget value font size based on block size (reduced for height)
-                    widgetValue.style.fontSize = isSingleBlock ? '16px' : effectiveSize === 2 ? '20px' : '24px';
+                    widgetValue.style.fontSize = isSingleBlock ? '14px' : effectiveSize === 2 ? '18px' : '22px';
                     widgetValue.style.fontWeight = '700';
-                    widgetValue.style.lineHeight = '1.1';
+                    widgetValue.style.lineHeight = '1';
                     widgetValue.style.marginBottom = '0';
                     widgetValue.style.marginTop = '0';
+                    widgetValue.style.padding = '0';
 
                     // Make label smaller for pomodoro
                     widgetLabel.style.fontSize = isSingleBlock ? '8px' : '9px';
