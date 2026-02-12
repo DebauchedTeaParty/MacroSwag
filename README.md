@@ -2,7 +2,7 @@
 
 A modern virtual macro controller with integrated media player controls for Windows. Create custom macros for keyboard shortcuts, applications, websites, and system widgets - perfect for touchscreen monitors or as a desktop macro pad.
 
-![MacroSwag Screenshot](https://i.ibb.co/1GcYMQ3x/Screenshot-2026-02-11-145805.png)
+![MacroSwag Screenshot](https://debauchedtea.party/wp-content/uploads/2026/02/full-new-rss.png)
 
 ## What is MacroSwag?
 

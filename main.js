@@ -45,30 +45,30 @@ function createWindow() {
 }
 
 function initializeMediaController() {
-    mediaController = new MediaController();
-    mediaController.initialize().then(() => {
-        console.log('Media controller initialized');
-        
-        // Test media detection immediately
-        mediaController.getMediaInfo().then((info) => {
-            console.log('Initial media check:', info);
-            if (mainWindow) {
-                mainWindow.webContents.send('media-update', info);
-            }
-        });
-        
-        // Start update loop
-        mediaController.startUpdateLoop((info) => {
-            if (mainWindow) {
-                mainWindow.webContents.send('media-update', info);
-            }
-        });
-    }).catch((error) => {
-        console.error('Failed to initialize media controller:', error);
-        if (mainWindow) {
-            mainWindow.webContents.send('backend-error', error.message);
-        }
+  mediaController = new MediaController();
+  mediaController.initialize().then(() => {
+    console.log('Media controller initialized');
+
+    // Test media detection immediately
+    mediaController.getMediaInfo().then((info) => {
+      console.log('Initial media check:', info);
+      if (mainWindow) {
+        mainWindow.webContents.send('media-update', info);
+      }
     });
+
+    // Start update loop
+    mediaController.startUpdateLoop((info) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('media-update', info);
+      }
+    });
+  }).catch((error) => {
+    console.error('Failed to initialize media controller:', error);
+    if (mainWindow) {
+      mainWindow.webContents.send('backend-error', error.message);
+    }
+  });
 }
 
 // --- Macro store helpers ---
@@ -269,19 +269,19 @@ ipcMain.handle('stop-key-recording', () => {
 // Capture keyboard input at main process level
 function setupKeyRecording() {
   if (!mainWindow) return;
-  
+
   mainWindow.webContents.on('before-input-event', (event, input) => {
     // Only intercept when recording
     if (!isRecordingKeys) {
       // F12 can still be used to toggle DevTools manually if needed
       return;
     }
-    
+
     // Prevent default for all keys when recording (except Escape)
     if (input.key !== 'Escape') {
       event.preventDefault();
     }
-    
+
     // Send key info to renderer - always send keydown events
     if (mainWindow && mainWindow.webContents) {
       const keyData = {
@@ -293,7 +293,7 @@ function setupKeyRecording() {
         meta: (input.meta || input.super) || false,
         type: input.type || 'keyDown'
       };
-      
+
       console.log('Sending key-recorded event:', keyData); // Debug log
       mainWindow.webContents.send('key-recorded', keyData);
     }
@@ -321,15 +321,15 @@ function getCpuUsage() {
 
     let totalIdle = 0;
     let totalTick = 0;
-    
+
     cpus.forEach((cpu, i) => {
       const prev = previousCpuTimes[i];
       const idle = cpu.times.idle - prev.idle;
       const tick = (cpu.times.user + cpu.times.nice + cpu.times.sys + cpu.times.idle + cpu.times.irq) -
-                   (prev.user + prev.nice + prev.sys + prev.idle + prev.irq);
+        (prev.user + prev.nice + prev.sys + prev.idle + prev.irq);
       totalIdle += idle;
       totalTick += tick;
-      
+
       previousCpuTimes[i] = {
         user: cpu.times.user,
         nice: cpu.times.nice,
@@ -364,11 +364,11 @@ function getDiskUsage() {
         resolve({ total: 0, used: 0, free: 0, percentage: 0 });
         return;
       }
-      
+
       const lines = stdout.split('\n').filter(line => line.trim());
       let total = 0;
       let free = 0;
-      
+
       for (const line of lines) {
         if (line.includes('C:')) {
           const parts = line.trim().split(/\s+/);
@@ -378,7 +378,7 @@ function getDiskUsage() {
           }
         }
       }
-      
+
       const used = total - free;
       resolve({
         total,
@@ -400,23 +400,23 @@ function getNetworkBandwidth() {
         resolve({ download: 0, upload: 0, downloadSpeed: 0, uploadSpeed: 0 });
         return;
       }
-      
+
       try {
         const now = Date.now();
         const adapters = JSON.parse(stdout);
         const adapter = Array.isArray(adapters) ? adapters[0] : adapters;
-        
+
         if (!adapter) {
           resolve({ download: 0, upload: 0, downloadSpeed: 0, uploadSpeed: 0 });
           return;
         }
-        
+
         const received = adapter.ReceivedBytes || 0;
         const sent = adapter.SentBytes || 0;
-        
+
         let downloadSpeed = 0;
         let uploadSpeed = 0;
-        
+
         if (previousNetworkStats && networkUpdateTime) {
           const timeDiff = (now - networkUpdateTime) / 1000; // seconds
           if (timeDiff > 0) {
@@ -424,10 +424,10 @@ function getNetworkBandwidth() {
             uploadSpeed = (sent - previousNetworkStats.sent) / timeDiff;
           }
         }
-        
+
         previousNetworkStats = { received, sent };
         networkUpdateTime = now;
-        
+
         resolve({
           download: received,
           upload: sent,
@@ -448,7 +448,7 @@ async function getAllSystemStats() {
     getDiskUsage(),
     getNetworkBandwidth()
   ]);
-  
+
   return {
     cpu,
     memory,
@@ -501,3 +501,9 @@ app.on('before-quit', () => {
   }
 });
 
+// IPC Handlers - Shell
+ipcMain.handle('open-external', async (event, url) => {
+  if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+    await shell.openExternal(url);
+  }
+});

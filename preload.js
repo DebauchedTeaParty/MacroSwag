@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSystemStats: () => ipcRenderer.invoke('get-system-stats'),
 
   // File dialog
-  showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options)
+  showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
+
+  // Shell
+  openExternal: (url) => ipcRenderer.invoke('open-external', url)
 });
 

@@ -64,7 +64,7 @@ function setupEventListeners() {
     const progressBar = document.getElementById('wavy-progress-bar');
     progressBar.addEventListener('click', handleProgressBarClick);
     progressBar.addEventListener('mousemove', handleProgressBarHover);
-    
+
     // Sound playback handler
     window.electronAPI.onPlaySound((event, soundData) => {
         playSoundClip(soundData);
@@ -127,87 +127,19 @@ function setupEventListeners() {
     const rssConfigCancel = document.getElementById('rss-config-cancel-btn');
     const rssConfigAdd = document.getElementById('rss-config-add-btn');
     const rssConfigBackdrop = document.getElementById('rss-config-modal-backdrop');
-    
+
     if (rssConfigClose) {
         rssConfigClose.addEventListener('click', closeRssConfigModal);
     }
-    
+
     if (rssConfigCancel) {
         rssConfigCancel.addEventListener('click', closeRssConfigModal);
     }
-    
+
     if (rssConfigAdd) {
-        rssConfigAdd.addEventListener('click', async () => {
-            const feedsInput = document.getElementById('rss-feeds-input');
-            const intervalInput = document.getElementById('rss-update-interval');
-            
-            if (!feedsInput || !intervalInput) return;
-            
-            const feedUrls = feedsInput.value.split('\n').filter(url => url.trim());
-            const updateInterval = parseInt(intervalInput.value) || 5;
-            
-            if (feedUrls.length === 0) {
-                alert('Please enter at least one RSS feed URL');
-                return;
-            }
-            
-            // Find first empty slot
-            let targetSlot = -1;
-            for (let i = 0; i < 12; i++) {
-                if (!macros[i]) {
-                    targetSlot = i;
-                    break;
-                }
-            }
-            
-            if (targetSlot === -1) {
-                alert('Deck is full! Remove a macro first.');
-                return;
-            }
-            
-            // Create RSS widget
-            const id = 'macro-' + Date.now();
-            const newMacro = {
-                id,
-                label: 'RSS Feed',
-                type: 'library',
-                config: {
-                    widgetType: 'rss',
-                    feedUrls: feedUrls,
-                    updateInterval: updateInterval
-                },
-                iconData: null,
-                rssItems: [],
-                rssCurrentIndex: 0,
-                rssCurrentImage: null
-            };
-            
-            macros[targetSlot] = newMacro;
-            
-            // Fetch RSS feeds
-            try {
-                const items = await fetchRssFeeds(feedUrls);
-                newMacro.rssItems = items;
-                if (items.length > 0) {
-                    newMacro.rssCurrentIndex = 0;
-                    const firstItem = items[0];
-                    if (firstItem.image) {
-                        newMacro.rssCurrentImage = firstItem.image;
-                    }
-                }
-            } catch (error) {
-                console.error('Error fetching RSS feeds:', error);
-            }
-            
-            saveMacrosAndSettings();
-            renderDeckGrid();
-            closeRssConfigModal();
-            
-            // Start RSS updates
-            startRssUpdates(newMacro);
-        });
+        rssConfigAdd.addEventListener('click', saveRssConfig);
     }
-    
+
     if (rssConfigBackdrop) {
         rssConfigBackdrop.addEventListener('click', (e) => {
             if (e.target.id === 'rss-config-modal-backdrop') {
@@ -221,7 +153,7 @@ function setupEventListeners() {
     document.getElementById('cancel-macro-btn').addEventListener('click', closeMacroModal);
     document.getElementById('save-macro-btn').addEventListener('click', saveMacroFromModal);
     document.getElementById('delete-macro-btn').addEventListener('click', deleteActiveMacro);
-    
+
     // Close modal when clicking backdrop
     document.getElementById('macro-modal-backdrop').addEventListener('click', (e) => {
         if (e.target.id === 'macro-modal-backdrop') {
@@ -245,7 +177,7 @@ function setupEventListeners() {
                     ],
                     title: 'Select Application'
                 });
-                
+
                 if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
                     const appPathInput = document.getElementById('macro-app-path');
                     if (appPathInput) {
@@ -268,17 +200,17 @@ async function loadMacrosAndSettings() {
         const data = await window.electronAPI.getMacrosAndSettings();
         settings = data.settings || { theme: 'default' };
         const loadedMacros = Array.isArray(data.macros) ? data.macros : [];
-        
+
         // Convert to slot-based array (12 slots, preserve positions)
         // JSON null values become undefined for empty slots
         macros = [];
         for (let i = 0; i < 12; i++) {
             macros[i] = (loadedMacros[i] !== null && loadedMacros[i] !== undefined) ? loadedMacros[i] : undefined;
         }
-        
+
         // Remove trailing undefined values (but keep slot positions for slots 0-11)
         // Actually, let's keep the array as-is since we iterate by index in renderDeckGrid
-        
+
         applyTheme(settings.theme || 'default', false);
         renderDeckGrid();
         activateThemeChips();
@@ -294,7 +226,7 @@ function saveMacrosAndSettings() {
     for (let i = 0; i < 12; i++) {
         slotBasedMacros[i] = (macros[i] !== undefined && macros[i] !== null) ? macros[i] : null;
     }
-    
+
     window.electronAPI.saveMacrosAndSettings({
         settings,
         macros: slotBasedMacros,
@@ -349,9 +281,32 @@ function renderDeckGrid() {
     const filled = Math.min(macros.length, totalSlots);
 
     for (let i = 0; i < totalSlots; i++) {
+        // Skip rendering if this slot is covered by a previous large macro
+        if (i > 0) {
+            // Check previous slots to see if any extend into this one
+            let covered = false;
+            // Check immediate left (i-1) for size >= 2
+            if (macros[i - 1] && (macros[i - 1].size || 1) >= 2) covered = true;
+            // Check 2 slots left (i-2) for size >= 3
+            if (i >= 2 && macros[i - 2] && (macros[i - 2].size || 1) >= 3) covered = true;
+
+            if (covered) continue;
+        }
+
         const macro = macros[i];
         const key = document.createElement('div');
         key.classList.add('deck-key');
+
+        // Apply size class if macro exists, capping it to available columns
+        if (macro && macro.size > 1) {
+            const colIndex = i % 4; // 0-3
+            const availableCols = 4 - colIndex;
+            const effectiveSize = Math.min(macro.size, availableCols);
+
+            if (effectiveSize > 1) {
+                key.classList.add(`span-${effectiveSize}`);
+            }
+        }
 
         if (macro) {
             if (editMode) key.classList.add('edit-mode');
@@ -361,23 +316,23 @@ function renderDeckGrid() {
                 key.classList.add('deck-widget');
                 key.dataset.widgetType = macro.config?.widgetType || 'cpu';
                 key.dataset.macroId = macro.id;
-                
+
                 const widgetContent = document.createElement('div');
                 widgetContent.classList.add('widget-content');
-                
+
                 const widgetIcon = document.createElement('div');
                 widgetIcon.classList.add('widget-icon');
                 widgetIcon.textContent = getWidgetIcon(macro.config?.widgetType || 'cpu');
-                
+
                 const widgetLabel = document.createElement('div');
                 widgetLabel.classList.add('widget-label');
                 widgetLabel.textContent = macro.label || getWidgetLabel(macro.config?.widgetType || 'cpu');
-                
+
                 const widgetValue = document.createElement('div');
                 widgetValue.classList.add('widget-value');
                 widgetValue.id = `widget-value-${macro.id}`;
                 widgetValue.textContent = '...';
-                
+
                 // Special handling for RSS feed - add URL display and background image
                 if (macro.config?.widgetType === 'rss') {
                     const widgetUrl = document.createElement('div');
@@ -385,7 +340,7 @@ function renderDeckGrid() {
                     widgetUrl.id = `widget-url-${macro.id}`;
                     widgetUrl.textContent = '';
                     widgetContent.appendChild(widgetUrl);
-                    
+
                     // Set background image if available
                     if (macro.rssCurrentImage) {
                         key.style.backgroundImage = `url(${macro.rssCurrentImage})`;
@@ -394,7 +349,7 @@ function renderDeckGrid() {
                         key.style.backgroundRepeat = 'no-repeat';
                     }
                 }
-                
+
                 widgetContent.appendChild(widgetIcon);
                 widgetContent.appendChild(widgetLabel);
                 widgetContent.appendChild(widgetValue);
@@ -428,13 +383,13 @@ function renderDeckGrid() {
             if (editMode) {
                 key.draggable = true;
                 key.dataset.macroIndex = i;
-                
+
                 key.addEventListener('dragstart', (e) => {
                     e.dataTransfer.effectAllowed = 'move';
                     e.dataTransfer.setData('text/plain', i.toString());
                     key.classList.add('dragging');
                 });
-                
+
                 key.addEventListener('dragend', (e) => {
                     key.classList.remove('dragging');
                     // Remove drag-over class from all keys
@@ -442,7 +397,7 @@ function renderDeckGrid() {
                         k.classList.remove('drag-over');
                     });
                 });
-                
+
                 key.addEventListener('dragover', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -455,11 +410,11 @@ function renderDeckGrid() {
                     key.classList.add('drag-over');
                     return false;
                 });
-                
+
                 key.addEventListener('dragleave', (e) => {
                     key.classList.remove('drag-over');
                 });
-                
+
                 key.addEventListener('drop', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -489,54 +444,54 @@ function renderDeckGrid() {
                             console.error('Error parsing library drag data (occupied slot):', err);
                         }
                     }
-                    
+
                     // Regular macro reordering
                     const sourceIndexStr = e.dataTransfer.getData('text/plain');
                     if (!sourceIndexStr) return false;
-                    
+
                     const sourceIndex = parseInt(sourceIndexStr);
                     const targetIndex = i;
-                    
+
                     console.log('Drop event:', { sourceIndex, targetIndex, macrosLength: macros.length });
-                    
+
                     if (isNaN(sourceIndex) || isNaN(targetIndex)) {
                         console.error('Invalid indices:', { sourceIndex, targetIndex });
                         return false;
                     }
-                    
+
                     if (sourceIndex === targetIndex) {
                         console.log('Same index, no move needed');
                         return false;
                     }
-                    
+
                     if (sourceIndex < 0 || sourceIndex >= macros.length) {
                         console.error('Source index out of bounds:', sourceIndex);
                         return false;
                     }
-                    
+
                     // Get the macro to move
                     const macroToMove = macros[sourceIndex];
                     if (!macroToMove) {
                         console.error('No macro at source index:', sourceIndex);
                         return false;
                     }
-                    
+
                     // Ensure macros array has 12 slots (pad with undefined if needed)
                     while (macros.length < 12) {
                         macros.push(undefined);
                     }
-                    
+
                     // Swap: exchange macros between source and target slots
                     const existingAtTarget = macros[targetIndex];
                     macros[sourceIndex] = existingAtTarget; // Put target's macro (or undefined) at source
                     macros[targetIndex] = macroToMove; // Put source macro at target
-                    
+
                     console.log('Macros after reorder:', macros.map((m, idx) => ({ idx, id: m?.id, label: m?.label })));
-                    
+
                     // Save and re-render
                     saveMacrosAndSettings();
                     renderDeckGrid();
-                    
+
                     return false;
                 });
             }
@@ -550,15 +505,24 @@ function renderDeckGrid() {
                 }
                 if (editMode) {
                     console.log('Opening macro modal from click, macro:', macro);
-                    openMacroModal(macro);
+                    editMacro(macro);
                 } else {
                     // Widgets don't execute, they just display
                     if (macro.type !== 'library') {
                         executeMacro(macro);
+                    } else if (macro.config && macro.config.widgetType === 'rss') {
+                        console.log('RSS widget clicked, checking for link...');
+                        if (macro.rssItems && macro.rssItems[macro.rssCurrentIndex]) {
+                            const link = macro.rssItems[macro.rssCurrentIndex].link;
+                            console.log('Opening RSS link:', link);
+                            if (link) {
+                                window.electronAPI.openExternal(link);
+                            }
+                        }
                     }
                 }
             });
-            
+
             // Right-click context menu
             key.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
@@ -570,7 +534,7 @@ function renderDeckGrid() {
             const span = document.createElement('span');
             span.textContent = editMode ? 'Add macro' : '';
             key.appendChild(span);
-            
+
             // Drag and drop for empty slots (always allow library widgets, edit mode for macros)
             key.addEventListener('dragover', (e) => {
                 // Always allow library widgets to be dropped
@@ -590,16 +554,16 @@ function renderDeckGrid() {
                     return false;
                 }
             });
-            
+
             key.addEventListener('dragleave', (e) => {
                 key.classList.remove('drag-over');
             });
-            
+
             key.addEventListener('drop', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 key.classList.remove('drag-over');
-                
+
                 // Check if this is a library widget being dragged from library modal
                 const libraryData = e.dataTransfer.getData('application/json');
                 if (libraryData) {
@@ -625,53 +589,53 @@ function renderDeckGrid() {
                         console.error('Error parsing library drag data:', err);
                     }
                 }
-                
+
                 // Regular macro move to empty slot (only in edit mode)
                 if (!editMode) return false;
-                
+
                 const sourceIndexStr = e.dataTransfer.getData('text/plain');
                 if (!sourceIndexStr) return false;
-                
+
                 const sourceIndex = parseInt(sourceIndexStr);
                 const targetIndex = i;
-                
+
                 console.log('Drop to empty slot:', { sourceIndex, targetIndex, macrosLength: macros.length });
-                
+
                 if (isNaN(sourceIndex) || isNaN(targetIndex)) {
                     console.error('Invalid indices:', { sourceIndex, targetIndex });
                     return false;
                 }
-                
+
                 if (sourceIndex < 0 || sourceIndex >= 12 || targetIndex < 0 || targetIndex >= 12) {
                     console.error('Index out of bounds:', { sourceIndex, targetIndex });
                     return false;
                 }
-                
+
                 // Get the macro to move
                 const macroToMove = macros[sourceIndex];
                 if (!macroToMove) {
                     console.error('No macro at source index:', sourceIndex);
                     return false;
                 }
-                
+
                 // Ensure macros array has 12 slots (pad with undefined if needed)
                 while (macros.length < 12) {
                     macros.push(undefined);
                 }
-                
+
                 // Direct slot assignment: move macro from source to target
                 macros[sourceIndex] = undefined; // Clear source slot
                 macros[targetIndex] = macroToMove; // Set target slot
-                
+
                 console.log('Macros after move to empty:', macros.map((m, idx) => ({ idx, id: m?.id, label: m?.label })));
-                
+
                 // Save and re-render
                 saveMacrosAndSettings();
                 renderDeckGrid();
-                
+
                 return false;
             });
-            
+
             // Left-click to add macro in edit mode
             key.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -685,7 +649,7 @@ function renderDeckGrid() {
                     openMacroModal();
                 }
             });
-            
+
             // Right-click context menu for empty slots
             key.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
@@ -698,7 +662,7 @@ function renderDeckGrid() {
 
         grid.appendChild(key);
     }
-    
+
     // Restart widget updates after rendering
     setTimeout(() => {
         if (widgetUpdateInterval) {
@@ -712,13 +676,13 @@ function renderDeckGrid() {
 function openMacroModal(macro) {
     console.log('openMacroModal called with:', macro);
     activeMacroId = macro ? macro.id : null;
-    
+
     const backdrop = document.getElementById('macro-modal-backdrop');
     if (!backdrop) {
         console.error('Macro modal backdrop not found!');
         return;
     }
-    
+
     const titleEl = document.getElementById('macro-modal-title');
     if (titleEl) {
         titleEl.textContent = macro ? 'Edit Macro' : 'New Macro';
@@ -730,6 +694,7 @@ function openMacroModal(macro) {
     // Reset fields safely (guard against missing elements)
     const labelInput = document.getElementById('macro-label');
     const typeSelect = document.getElementById('macro-type');
+    const sizeSelect = document.getElementById('macro-size');
     const keysInput = document.getElementById('macro-keys');
     const urlInput = document.getElementById('macro-url');
     const appPathInput = document.getElementById('macro-app-path');
@@ -751,10 +716,26 @@ function openMacroModal(macro) {
 
     labelInput.value = macro?.label || '';
     const type = macro?.type || 'keyboard';
+
+    // Create temporary option for library if needed to ensure value can be set
+    if (type === 'library' && !typeSelect.querySelector('option[value="library"]')) {
+        const opt = document.createElement('option');
+        opt.value = 'library';
+        opt.text = 'Library Widget';
+        opt.disabled = true;
+        opt.hidden = true;
+        typeSelect.appendChild(opt);
+    }
+
     typeSelect.value = type;
+
+    // Disable type selector for library widgets
+    typeSelect.disabled = (type === 'library');
+    const size = macro?.size || 1;
+    if (sizeSelect) sizeSelect.value = size;
     const keysValue = macro?.config?.keys || '';
     keysInput.value = keysValue;
-    
+
     // Show recorded display if there's a value
     const recordedDisplay = document.getElementById('recorded-shortcut-display');
     const recordedText = document.getElementById('recorded-keys-text');
@@ -770,7 +751,7 @@ function openMacroModal(macro) {
     appPathInput.value = macro?.config?.path || '';
     appArgsInput.value = macro?.config?.args || '';
     iconInput.value = '';
-    
+
     // Reset icon preview
     currentCropImage = null;
     const iconPreviewContainer = document.getElementById('icon-preview-container');
@@ -782,7 +763,7 @@ function openMacroModal(macro) {
     } else {
         iconPreviewContainer.style.display = 'none';
     }
-    
+
     updateMacroTypeVisibility();
 
     // Delete button visibility
@@ -800,10 +781,10 @@ function openMacroModal(macro) {
     backdrop.style.zIndex = '10000';
     console.log('Modal backdrop displayed, z-index:', window.getComputedStyle(backdrop).zIndex);
     console.log('Backdrop computed display:', window.getComputedStyle(backdrop).display);
-    
+
     // Force a reflow to ensure the display change takes effect
     void backdrop.offsetHeight;
-    
+
     // Double-check it's visible
     setTimeout(() => {
         const isVisible = window.getComputedStyle(backdrop).display !== 'none';
@@ -817,6 +798,8 @@ function openMacroModal(macro) {
 
 function closeMacroModal() {
     document.getElementById('macro-modal-backdrop').style.display = 'none';
+    const typeSelect = document.getElementById('macro-type');
+    if (typeSelect) typeSelect.disabled = false;
     activeMacroId = null;
     currentCropImage = null;
 }
@@ -837,13 +820,17 @@ function updateMacroTypeVisibility() {
     if (keyboardRow) keyboardRow.style.display = type === 'keyboard' ? '' : 'none';
     if (websiteRow) websiteRow.style.display = type === 'website' ? '' : 'none';
     if (appRow) appRow.style.display = type === 'app' ? '' : 'none';
+
+    // If it's a library widget, we only show standard fields (Label, Size, Icon)
+    // which are always visible, so no specific config row to show.
 }
 
 async function saveMacroFromModal() {
     console.log('saveMacroFromModal called');
     const label = document.getElementById('macro-label').value.trim() || 'Macro';
     const type = document.getElementById('macro-type').value;
-    console.log('Saving macro:', { label, type, activeMacroId });
+    const size = parseInt(document.getElementById('macro-size').value) || 1;
+    console.log('Saving macro:', { label, type, size, activeMacroId });
 
     const config = {};
     if (type === 'keyboard') {
@@ -853,6 +840,15 @@ async function saveMacroFromModal() {
     } else if (type === 'app') {
         config.path = document.getElementById('macro-app-path').value.trim();
         config.args = document.getElementById('macro-app-args').value.trim();
+    } else if (type === 'library') {
+        // For library widgets, we preserve the existing config (widgetType)
+        // Since we can't change widget type here
+        if (activeMacroId) {
+            const existing = macros.find(m => m && m.id === activeMacroId);
+            if (existing && existing.config) {
+                Object.assign(config, existing.config);
+            }
+        }
     }
 
     // Handle icon upload - use cropped version if available, otherwise use file
@@ -874,6 +870,7 @@ async function saveMacroFromModal() {
                 ...macros[idx],
                 label,
                 type,
+                size,
                 config,
                 iconData: iconData || macros[idx].iconData,
             };
@@ -887,17 +884,18 @@ async function saveMacroFromModal() {
                 break;
             }
         }
-        
+
         if (targetSlot === -1) {
             alert('Deck is full! Remove a macro first.');
             return;
         }
-        
+
         const id = 'macro-' + Date.now();
         macros[targetSlot] = {
             id,
             label,
             type,
+            size,
             config,
             iconData,
         };
@@ -930,24 +928,31 @@ function showMacroContextMenu(event, macro) {
         console.error('Context menu not found!');
         return;
     }
-    
+
     // Update context menu items based on whether there's a macro
     const editBtn = document.getElementById('context-edit');
     const deleteBtn = document.getElementById('context-delete');
-    
+
     if (editBtn) {
+        let showEdit = true;
+        if (macro && macro.type === 'library') {
+            if (!macro.config || macro.config.widgetType !== 'rss') {
+                showEdit = false;
+            }
+        }
+
         editBtn.textContent = macro ? 'Edit' : 'Add Macro';
-        editBtn.style.display = 'block';
+        editBtn.style.display = showEdit ? 'block' : 'none';
     }
-    
+
     if (deleteBtn) {
         deleteBtn.style.display = macro ? 'block' : 'none';
     }
-    
+
     menu.style.display = 'block';
     menu.style.left = event.clientX + 'px';
     menu.style.top = event.clientY + 'px';
-    
+
     // Close menu when clicking elsewhere (but not on menu items)
     // Use a longer delay to ensure menu items can be clicked
     setTimeout(() => {
@@ -975,12 +980,12 @@ function hideContextMenu() {
 function setupContextMenu() {
     const editBtn = document.getElementById('context-edit');
     const deleteBtn = document.getElementById('context-delete');
-    
+
     if (!editBtn || !deleteBtn) {
         console.error('Context menu buttons not found!');
         return;
     }
-    
+
     editBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
@@ -991,14 +996,14 @@ function setupContextMenu() {
         setTimeout(() => {
             console.log('Opening modal with macro:', macro);
             try {
-                openMacroModal(macro);
+                editMacro(macro);
             } catch (error) {
                 console.error('Error opening macro modal from context menu:', error);
                 alert('Error opening macro modal. Check console for details.');
             }
         }, 150);
     });
-    
+
     deleteBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
@@ -1076,13 +1081,13 @@ function setupIconCropping() {
     document.getElementById('crop-modal-close').addEventListener('click', closeCropModal);
     document.getElementById('crop-cancel-btn').addEventListener('click', closeCropModal);
     document.getElementById('crop-apply-btn').addEventListener('click', applyCrop);
-    
+
     // Setup sound file upload
     const soundInput = document.getElementById('macro-sound-file');
     const soundPreviewContainer = document.getElementById('sound-preview-container');
     const soundPreview = document.getElementById('sound-preview');
     const testSoundBtn = document.getElementById('test-sound-btn');
-    
+
     if (soundInput && soundPreviewContainer && soundPreview && testSoundBtn) {
         soundInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
@@ -1090,10 +1095,10 @@ function setupIconCropping() {
                 const dataURL = await readFileAsDataURL(file);
                 soundPreview.src = dataURL;
                 soundPreviewContainer.style.display = 'block';
-                
+
                 // Store in a temporary variable to save when macro is saved
                 window.currentSoundData = dataURL;
-                
+
                 // Also update the config if we're editing
                 if (activeMacroId) {
                     const idx = macros.findIndex((m) => m.id === activeMacroId);
@@ -1103,7 +1108,7 @@ function setupIconCropping() {
                 }
             }
         });
-        
+
         testSoundBtn.addEventListener('click', () => {
             if (soundPreview.src) {
                 soundPreview.currentTime = 0;
@@ -1117,14 +1122,14 @@ function openCropModal(imageSrc) {
     const canvas = document.getElementById('crop-canvas');
     const ctx = canvas.getContext('2d');
     const img = new Image();
-    
+
     img.onload = () => {
         // Set canvas size to fit image
         const maxWidth = 500;
         const maxHeight = 400;
         let width = img.width;
         let height = img.height;
-        
+
         if (width > maxWidth) {
             height = (height * maxWidth) / width;
             width = maxWidth;
@@ -1133,24 +1138,24 @@ function openCropModal(imageSrc) {
             width = (width * maxHeight) / height;
             height = maxHeight;
         }
-        
+
         canvas.width = width;
         canvas.height = height;
         ctx.drawImage(img, 0, 0, width, height);
-        
+
         // Initialize crop box (centered, square, 60% of canvas)
         const size = Math.min(width, height) * 0.6;
         cropState.width = size;
         cropState.height = size;
         cropState.x = (width - size) / 2;
         cropState.y = (height - size) / 2;
-        
+
         updateCropBox();
         updateCropPreview();
-        
+
         document.getElementById('crop-modal-backdrop').style.display = 'flex';
     };
-    
+
     img.src = imageSrc;
 }
 
@@ -1169,20 +1174,20 @@ function updateCropBox() {
 function updateCropPreview() {
     const canvas = document.getElementById('crop-canvas');
     const previewImg = document.getElementById('crop-preview-img');
-    
+
     // Create a temporary canvas for cropping
     const tempCanvas = document.createElement('canvas');
     const tempCtx = tempCanvas.getContext('2d');
     tempCanvas.width = cropState.width;
     tempCanvas.height = cropState.height;
-    
+
     // Draw the cropped portion
     tempCtx.drawImage(
         canvas,
         cropState.x, cropState.y, cropState.width, cropState.height,
         0, 0, cropState.width, cropState.height
     );
-    
+
     previewImg.src = tempCanvas.toDataURL();
 }
 
@@ -1200,7 +1205,7 @@ function applyCrop() {
 function setupCropBoxInteraction() {
     const cropBox = document.getElementById('crop-box');
     const canvas = document.getElementById('crop-canvas');
-    
+
     cropBox.addEventListener('mousedown', (e) => {
         e.preventDefault();
         cropState.isDragging = true;
@@ -1208,26 +1213,26 @@ function setupCropBoxInteraction() {
         cropState.dragStart.x = e.clientX - rect.left;
         cropState.dragStart.y = e.clientY - rect.top;
     });
-    
+
     document.addEventListener('mousemove', (e) => {
         if (cropState.isDragging) {
             const canvasRect = canvas.getBoundingClientRect();
             const newX = e.clientX - canvasRect.left - cropState.dragStart.x;
             const newY = e.clientY - canvasRect.top - cropState.dragStart.y;
-            
+
             // Constrain to canvas bounds
             cropState.x = Math.max(0, Math.min(newX, canvas.width - cropState.width));
             cropState.y = Math.max(0, Math.min(newY, canvas.height - cropState.height));
-            
+
             updateCropBox();
             updateCropPreview();
         }
     });
-    
+
     document.addEventListener('mouseup', () => {
         cropState.isDragging = false;
     });
-    
+
     // Allow resizing by dragging corners (simplified - just scale from center)
     cropBox.addEventListener('dblclick', () => {
         // Toggle between square and full canvas
@@ -1254,7 +1259,7 @@ function startMediaUpdates() {
 async function updateMediaInfo() {
     try {
         const info = await window.electronAPI.getMediaInfo();
-        
+
         if (info.error) {
             updateStatus('Connection error', false);
             return;
@@ -1264,7 +1269,7 @@ async function updateMediaInfo() {
         document.getElementById('track-title').textContent = info.title || 'No media playing';
         document.getElementById('track-artist').textContent = info.artist || '';
         document.getElementById('track-album').textContent = info.album || '';
-        
+
         // Update app name
         let appName = info.app || '';
         if (appName) {
@@ -1322,9 +1327,9 @@ async function updateMediaInfo() {
 function updateStatus(text, active) {
     const statusText = document.getElementById('status-text');
     const statusDot = document.querySelector('.status-dot');
-    
+
     statusText.textContent = text;
-    
+
     if (active) {
         statusDot.classList.add('active');
     } else {
@@ -1335,7 +1340,7 @@ function updateStatus(text, active) {
 function updatePlayPauseIcon() {
     const playIcon = document.querySelector('.play-icon');
     const pauseIcon = document.querySelector('.pause-icon');
-    
+
     if (isPlaying) {
         playIcon.style.display = 'none';
         pauseIcon.style.display = 'block';
@@ -1349,16 +1354,16 @@ function updateProgressBar(percentage) {
     const progressPath = document.getElementById('wavy-progress-path');
     const progressThumb = document.getElementById('progress-thumb');
     const progressBar = document.getElementById('wavy-progress-bar');
-    
+
     percentage = Math.max(0, Math.min(100, percentage));
-    
+
     if (progressPath) {
         // Calculate the path length and set stroke-dashoffset
         const pathLength = progressPath.getTotalLength();
         const offset = pathLength - (pathLength * percentage / 100);
         progressPath.style.strokeDashoffset = offset;
     }
-    
+
     if (progressThumb && progressBar) {
         const barWidth = progressBar.offsetWidth;
         progressThumb.style.left = (barWidth * percentage / 100) + 'px';
@@ -1382,7 +1387,7 @@ function handleProgressBarClick(event) {
     const rect = progressBar.getBoundingClientRect();
     const clickX = event.clientX - rect.left;
     const percentage = (clickX / rect.width) * 100;
-    
+
     // Seek to position
     window.electronAPI.seekToPosition?.(percentage);
 }
@@ -1392,7 +1397,7 @@ function handleProgressBarHover(event) {
     const rect = progressBar.getBoundingClientRect();
     const hoverX = event.clientX - rect.left;
     const percentage = (hoverX / rect.width) * 100;
-    
+
     // Update thumb position on hover
     const progressThumb = document.getElementById('progress-thumb');
     progressThumb.style.left = percentage + '%';
@@ -1448,7 +1453,7 @@ function setupKeyboardRecorder() {
 
         // Only handle keydown events
         if (keyData.type && keyData.type !== 'keyDown') return;
-        
+
         // Ignore Escape
         if (keyData.key === 'Escape') {
             stopRecording(false);
@@ -1464,7 +1469,7 @@ function setupKeyboardRecorder() {
             updateRecordingDisplay();
             return;
         }
-        
+
         // Record the key combination including modifiers
         const keyCombo = {
             key: keyData.key,
@@ -1474,16 +1479,16 @@ function setupKeyboardRecorder() {
             meta: keyData.meta || keyModifiers.meta,
             code: keyData.code
         };
-        
+
         // Only add if not already recorded
-        const exists = recordedKeys.some(k => 
-            k.key === keyCombo.key && 
-            k.ctrl === keyCombo.ctrl && 
-            k.alt === keyCombo.alt && 
+        const exists = recordedKeys.some(k =>
+            k.key === keyCombo.key &&
+            k.ctrl === keyCombo.ctrl &&
+            k.alt === keyCombo.alt &&
             k.shift === keyCombo.shift &&
             k.meta === keyCombo.meta
         );
-        
+
         if (!exists) {
             recordedKeys.push(keyCombo);
             updateRecordingDisplay();
@@ -1495,13 +1500,13 @@ function startRecording() {
     isRecording = true;
     recordedKeys = [];
     keyModifiers = { ctrl: false, alt: false, shift: false, meta: false };
-    
+
     const overlay = document.getElementById('recording-overlay');
     const display = document.getElementById('recorded-keys-display');
-    
+
     if (overlay) overlay.style.display = 'flex';
     if (display) display.textContent = 'Waiting for key press...';
-    
+
     // Start recording in main process (captures system shortcuts)
     window.electronAPI.startKeyRecording().then(() => {
         console.log('Key recording started in main process');
@@ -1516,19 +1521,19 @@ function startRecording() {
 
 function stopRecording(save) {
     isRecording = false;
-    
+
     // Stop recording in main process
     window.electronAPI.stopKeyRecording();
-    
+
     const overlay = document.getElementById('recording-overlay');
     if (overlay) overlay.style.display = 'none';
-    
+
     if (save && recordedKeys.length > 0) {
         const sendKeysFormat = convertToSendKeys(recordedKeys);
         const keysInput = document.getElementById('macro-keys');
         const recordedDisplay = document.getElementById('recorded-shortcut-display');
         const recordedText = document.getElementById('recorded-keys-text');
-        
+
         if (keysInput) {
             keysInput.value = sendKeysFormat;
         }
@@ -1539,14 +1544,14 @@ function stopRecording(save) {
             recordedDisplay.style.display = 'block';
         }
     }
-    
+
     recordedKeys = [];
     keyModifiers = { ctrl: false, alt: false, shift: false, meta: false };
 }
 
 function handleKeyDown(e) {
     if (!isRecording) return;
-    
+
     // Ignore modifier keys themselves, we track them separately
     if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
         if (e.key === 'Control') keyModifiers.ctrl = true;
@@ -1556,14 +1561,14 @@ function handleKeyDown(e) {
         updateRecordingDisplay();
         return;
     }
-    
+
     // Ignore Escape (handled separately)
     if (e.key === 'Escape') return;
-    
+
     // Prevent default to avoid typing in inputs
     e.preventDefault();
     e.stopPropagation();
-    
+
     // Record the key combination
     const keyCombo = {
         key: e.key,
@@ -1573,16 +1578,16 @@ function handleKeyDown(e) {
         meta: e.metaKey || keyModifiers.meta,
         code: e.code
     };
-    
+
     // Only add if not already recorded (avoid duplicates from key repeat)
-    const exists = recordedKeys.some(k => 
-        k.key === keyCombo.key && 
-        k.ctrl === keyCombo.ctrl && 
-        k.alt === keyCombo.alt && 
+    const exists = recordedKeys.some(k =>
+        k.key === keyCombo.key &&
+        k.ctrl === keyCombo.ctrl &&
+        k.alt === keyCombo.alt &&
         k.shift === keyCombo.shift &&
         k.meta === keyCombo.meta
     );
-    
+
     if (!exists) {
         recordedKeys.push(keyCombo);
         updateRecordingDisplay();
@@ -1591,7 +1596,7 @@ function handleKeyDown(e) {
 
 function handleKeyUp(e) {
     if (!isRecording) return;
-    
+
     if (e.key === 'Control') keyModifiers.ctrl = false;
     if (e.key === 'Alt') keyModifiers.alt = false;
     if (e.key === 'Shift') keyModifiers.shift = false;
@@ -1614,7 +1619,7 @@ function formatKeyDisplay(keys) {
         if (k.alt) parts.push('Alt');
         if (k.shift) parts.push('Shift');
         if (k.meta) parts.push('Win');
-        
+
         let keyName = k.key;
         // Format special keys
         if (keyName === ' ') keyName = 'Space';
@@ -1624,7 +1629,7 @@ function formatKeyDisplay(keys) {
         } else {
             keyName = keyName.toUpperCase();
         }
-        
+
         parts.push(keyName);
         return parts.join(' + ');
     }).join(', ');
@@ -1634,15 +1639,15 @@ function convertToSendKeys(keys) {
     // SendKeys format: ^ = Ctrl, % = Alt, + = Shift, # = Win
     // For multiple key combinations, we'll use the first one
     if (keys.length === 0) return '';
-    
+
     const k = keys[0];
     let result = '';
-    
+
     if (k.ctrl) result += '^';
     if (k.alt) result += '%';
     if (k.shift) result += '+';
     if (k.meta) result += '#';
-    
+
     // Convert key to SendKeys format
     let keyChar = k.key;
     if (keyChar === ' ') keyChar = ' ';
@@ -1681,7 +1686,7 @@ function convertToSendKeys(keys) {
         };
         keyChar = keyMap[keyChar] || keyChar;
     }
-    
+
     result += keyChar;
     return result;
 }
@@ -1690,10 +1695,10 @@ function formatSendKeysToDisplay(sendKeys) {
     // Convert SendKeys format back to human-readable format
     // ^ = Ctrl, % = Alt, + = Shift, # = Win
     if (!sendKeys) return '';
-    
+
     let display = sendKeys;
     const parts = [];
-    
+
     if (display.includes('^')) {
         parts.push('Ctrl');
         display = display.replace('^', '');
@@ -1710,7 +1715,7 @@ function formatSendKeysToDisplay(sendKeys) {
         parts.push('Win');
         display = display.replace('#', '');
     }
-    
+
     // Handle special keys in braces
     const specialKeyMap = {
         '{ENTER}': 'Enter',
@@ -1740,7 +1745,7 @@ function formatSendKeysToDisplay(sendKeys) {
         '{F11}': 'F11',
         '{F12}': 'F12'
     };
-    
+
     for (const [key, value] of Object.entries(specialKeyMap)) {
         if (display.includes(key)) {
             parts.push(value);
@@ -1748,12 +1753,12 @@ function formatSendKeysToDisplay(sendKeys) {
             break;
         }
     }
-    
+
     // Add remaining character (if any)
     if (display.trim()) {
         parts.push(display.trim().toUpperCase());
     }
-    
+
     return parts.join(' + ') || sendKeys;
 }
 
@@ -1808,10 +1813,10 @@ function updateWidgets() {
             // This is okay, it will be found on the next update cycle
             return;
         }
-        
+
         const widgetType = macro.config?.widgetType || 'cpu';
         let displayValue = '';
-        
+
         switch (widgetType) {
             case 'cpu':
                 if (systemStats) {
@@ -1866,7 +1871,7 @@ function updateWidgets() {
             default:
                 displayValue = '...';
         }
-        
+
         widgetValueEl.textContent = displayValue;
     });
 }
@@ -1897,7 +1902,7 @@ function startWidgetUpdates() {
         }
         return;
     }
-    
+
     // Clear existing intervals before starting new ones
     if (widgetUpdateInterval) {
         clearInterval(widgetUpdateInterval);
@@ -1907,29 +1912,29 @@ function startWidgetUpdates() {
         clearInterval(window.systemStatsInterval);
         window.systemStatsInterval = null;
     }
-    
+
     // Initial update (give DOM a moment to be ready)
     setTimeout(() => {
         updateWidgets();
     }, 50);
-    
+
     // Fetch system stats if there are system monitoring widgets
-    const hasSystemWidgets = macros.some(m => 
-        m && m.type === 'library' && 
+    const hasSystemWidgets = macros.some(m =>
+        m && m.type === 'library' &&
         ['cpu', 'memory', 'disk', 'bandwidth'].includes(m.config?.widgetType)
     );
-    
+
     if (hasSystemWidgets) {
         fetchSystemStats();
         // Fetch system stats every 2 seconds
         window.systemStatsInterval = setInterval(fetchSystemStats, 2000);
     }
-    
+
     // Update all widgets every second (clock needs this, and all widgets benefit from regular updates)
     widgetUpdateInterval = setInterval(() => {
         updateWidgets();
     }, 1000);
-    
+
     // Start RSS updates for any RSS widgets
     macros.filter(m => m && m.type === 'library' && m.config?.widgetType === 'rss').forEach(macro => {
         // If RSS items haven't been loaded yet, fetch them
@@ -1998,24 +2003,24 @@ const AVAILABLE_WIDGETS = [
 function openLibraryModal() {
     const backdrop = document.getElementById('library-modal-backdrop');
     const grid = document.getElementById('library-grid');
-    
+
     if (!backdrop || !grid) return;
-    
+
     grid.innerHTML = '';
-    
+
     AVAILABLE_WIDGETS.forEach(widget => {
         const preview = document.createElement('div');
         preview.classList.add('library-widget-preview', 'deck-widget');
         preview.dataset.widgetType = widget.type;
         preview.draggable = true;
-        
+
         const widgetContent = document.createElement('div');
         widgetContent.classList.add('widget-content');
-        
+
         const widgetIcon = document.createElement('div');
         widgetIcon.classList.add('widget-icon');
         widgetIcon.textContent = widget.icon;
-        
+
         const widgetLabel = document.createElement('div');
         widgetLabel.classList.add('widget-label');
         widgetLabel.textContent = widget.label;
@@ -2023,11 +2028,11 @@ function openLibraryModal() {
         const widgetDescription = document.createElement('div');
         widgetDescription.classList.add('widget-description');
         widgetDescription.textContent = widget.description || '';
-        
+
         const widgetValue = document.createElement('div');
         widgetValue.classList.add('widget-value');
         widgetValue.textContent = widget.type === 'clock' ? getCurrentTime() : '...';
-        
+
         widgetContent.appendChild(widgetIcon);
         widgetContent.appendChild(widgetLabel);
         if (widget.description) {
@@ -2035,27 +2040,27 @@ function openLibraryModal() {
         }
         widgetContent.appendChild(widgetValue);
         preview.appendChild(widgetContent);
-        
+
         // Drag start
         preview.addEventListener('dragstart', (e) => {
             e.dataTransfer.effectAllowed = 'copy';
-            e.dataTransfer.setData('application/json', JSON.stringify({ 
-                type: 'library', 
-                widgetType: widget.type 
+            e.dataTransfer.setData('application/json', JSON.stringify({
+                type: 'library',
+                widgetType: widget.type
             }));
             preview.classList.add('dragging');
         });
-        
+
         preview.addEventListener('dragend', (e) => {
             preview.classList.remove('dragging');
         });
-        
+
         // Right-click to add
         preview.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             addWidgetToDeck(widget.type);
         });
-        
+
         // Click to add (or configure for RSS)
         preview.addEventListener('click', () => {
             if (widget.type === 'rss') {
@@ -2064,13 +2069,13 @@ function openLibraryModal() {
                 addWidgetToDeck(widget.type);
             }
         });
-        
+
         grid.appendChild(preview);
     });
-    
+
     // Update library modal widgets
     updateLibraryModalWidgets();
-    
+
     // Set up interval to update library modal widgets
     if (window.libraryModalInterval) {
         clearInterval(window.libraryModalInterval);
@@ -2078,22 +2083,22 @@ function openLibraryModal() {
     window.libraryModalInterval = setInterval(() => {
         updateLibraryModalWidgets();
     }, 1000);
-    
+
     backdrop.style.display = 'flex';
 }
 
 function updateLibraryModalWidgets() {
     const grid = document.getElementById('library-grid');
     if (!grid) return;
-    
+
     const previews = grid.querySelectorAll('.library-widget-preview');
     previews.forEach(preview => {
         const widgetType = preview.dataset.widgetType;
         const valueEl = preview.querySelector('.widget-value');
         if (!valueEl) return;
-        
+
         let displayValue = '';
-        
+
         switch (widgetType) {
             case 'cpu':
                 if (systemStats) {
@@ -2129,12 +2134,12 @@ function updateLibraryModalWidgets() {
                 displayValue = getCurrentTime();
                 break;
         }
-        
+
         valueEl.textContent = displayValue;
     });
-    
+
     // Fetch system stats if needed
-    const hasSystemWidgets = Array.from(previews).some(p => 
+    const hasSystemWidgets = Array.from(previews).some(p =>
         ['cpu', 'memory', 'disk', 'bandwidth'].includes(p.dataset.widgetType)
     );
     if (hasSystemWidgets && !systemStats) {
@@ -2177,12 +2182,12 @@ function addWidgetToDeck(widgetType) {
             break;
         }
     }
-    
+
     if (targetIndex >= 12) {
         alert('Deck is full! Remove a macro first.');
         return;
     }
-    
+
     const id = 'macro-' + Date.now();
     const newMacro = {
         id,
@@ -2193,7 +2198,7 @@ function addWidgetToDeck(widgetType) {
         },
         iconData: null
     };
-    
+
     macros[targetIndex] = newMacro;
     saveMacrosAndSettings();
     renderDeckGrid();
@@ -2207,13 +2212,13 @@ function openRssConfigModal() {
     const backdrop = document.getElementById('rss-config-modal-backdrop');
     const feedsInput = document.getElementById('rss-feeds-input');
     const intervalInput = document.getElementById('rss-update-interval');
-    
+
     if (!backdrop || !feedsInput || !intervalInput) return;
-    
+
     // Clear previous values
     feedsInput.value = '';
     intervalInput.value = '5';
-    
+
     backdrop.style.display = 'flex';
 }
 
@@ -2233,33 +2238,34 @@ async function parseRssFeed(url) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const text = await response.text();
-        
+
         // Parse XML
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(text, 'text/xml');
-        
+
         // Check for parsing errors
         const parseError = xmlDoc.querySelector('parsererror');
         if (parseError) {
             throw new Error('Failed to parse RSS feed');
         }
-        
+
         // Extract items
         const items = xmlDoc.querySelectorAll('item');
         const rssItems = [];
-        
+
         items.forEach(item => {
             const title = item.querySelector('title')?.textContent || '';
             const link = item.querySelector('link')?.textContent || '';
             const description = item.querySelector('description')?.textContent || '';
-            
+
             // Try to find image - check multiple possible locations
             let image = null;
-            const mediaContent = item.querySelector('media\\:content, content, enclosure');
+            const mediaContent = item.querySelector('media\\:content, media\\:thumbnail, content, enclosure');
             if (mediaContent) {
+                // Check url attribute first, then href (some feeds use href for enclosure)
                 image = mediaContent.getAttribute('url') || mediaContent.getAttribute('href');
             }
-            
+
             // Try to extract image from description (HTML)
             if (!image && description) {
                 const imgMatch = description.match(/<img[^>]+src=["']([^"']+)["']/i);
@@ -2267,7 +2273,7 @@ async function parseRssFeed(url) {
                     image = imgMatch[1];
                 }
             }
-            
+
             // Try content:encoded or other fields
             if (!image) {
                 const contentEncoded = item.querySelector('content\\:encoded, encoded');
@@ -2278,7 +2284,7 @@ async function parseRssFeed(url) {
                     }
                 }
             }
-            
+
             rssItems.push({
                 title: title.trim(),
                 link: link.trim(),
@@ -2286,7 +2292,7 @@ async function parseRssFeed(url) {
                 image: image
             });
         });
-        
+
         return rssItems;
     } catch (error) {
         console.error('Error parsing RSS feed:', url, error);
@@ -2296,7 +2302,7 @@ async function parseRssFeed(url) {
 
 async function fetchRssFeeds(feedUrls) {
     const allItems = [];
-    
+
     for (const url of feedUrls) {
         if (!url || !url.trim()) continue;
         try {
@@ -2306,21 +2312,21 @@ async function fetchRssFeeds(feedUrls) {
             console.error('Error fetching RSS feed:', url, error);
         }
     }
-    
+
     // Sort by date if available, otherwise keep order
     return allItems;
 }
 
 function startRssUpdates(macro) {
     if (!macro || macro.config?.widgetType !== 'rss') return;
-    
+
     // Clear existing interval for this macro
     if (rssUpdateIntervals[macro.id]) {
         clearInterval(rssUpdateIntervals[macro.id]);
     }
-    
+
     const updateInterval = macro.config?.updateInterval || 5; // seconds
-    
+
     // Cycle through RSS items
     rssUpdateIntervals[macro.id] = setInterval(() => {
         if (macro.rssItems && macro.rssItems.length > 0) {
@@ -2328,22 +2334,22 @@ function startRssUpdates(macro) {
             if (macro.rssCurrentIndex >= macro.rssItems.length) {
                 macro.rssCurrentIndex = 0;
             }
-            
+
             const currentItem = macro.rssItems[macro.rssCurrentIndex];
             if (currentItem) {
                 // Update widget display
                 const widgetValueEl = document.getElementById(`widget-value-${macro.id}`);
                 const widgetUrlEl = document.getElementById(`widget-url-${macro.id}`);
                 const keyEl = document.querySelector(`[data-macro-id="${macro.id}"]`);
-                
+
                 if (widgetValueEl) {
                     widgetValueEl.textContent = currentItem.title || 'RSS Feed';
                 }
-                
+
                 if (widgetUrlEl) {
                     widgetUrlEl.textContent = currentItem.link || '';
                 }
-                
+
                 // Update background image
                 if (keyEl && currentItem.image) {
                     macro.rssCurrentImage = currentItem.image;
@@ -2377,4 +2383,157 @@ window.addEventListener('beforeunload', () => {
         clearInterval(interval);
     });
 });
+
+// --- RSS Config Functions ---
+
+function openRssConfigModal(macro) {
+    activeMacroId = macro ? macro.id : null;
+
+    const feedsInput = document.getElementById('rss-feeds-input');
+    const intervalInput = document.getElementById('rss-update-interval');
+
+    if (macro && macro.config) {
+        if (macro.config.feedUrls) {
+            feedsInput.value = Array.isArray(macro.config.feedUrls) ? macro.config.feedUrls.join('\n') : macro.config.feedUrls;
+        } else {
+            feedsInput.value = '';
+        }
+
+        intervalInput.value = macro.config.updateInterval || 5;
+        const sizeSelect = document.getElementById('rss-size');
+        if (sizeSelect) sizeSelect.value = macro.size || 1;
+    } else {
+        feedsInput.value = '';
+        intervalInput.value = 5;
+        const sizeSelect = document.getElementById('rss-size');
+        if (sizeSelect) sizeSelect.value = 1;
+    }
+
+    const backdrop = document.getElementById('rss-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'flex';
+    }
+}
+
+function closeRssConfigModal() {
+    const backdrop = document.getElementById('rss-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'none';
+    }
+    activeMacroId = null;
+}
+
+async function saveRssConfig() {
+    const feedsInput = document.getElementById('rss-feeds-input');
+    const intervalInput = document.getElementById('rss-update-interval');
+
+    if (!feedsInput || !intervalInput) return;
+
+    const feedUrls = feedsInput.value.split('\n').filter(url => url.trim());
+    const updateInterval = parseInt(intervalInput.value) || 5;
+    const size = parseInt(document.getElementById('rss-size').value) || 1;
+
+    if (feedUrls.length === 0) {
+        alert('Please enter at least one RSS feed URL');
+        return;
+    }
+
+    let targetSlot = -1;
+    let newMacro = null;
+
+    if (activeMacroId) {
+        // Updating existing macro
+        const idx = macros.findIndex(m => m && m.id === activeMacroId);
+        if (idx >= 0) {
+            targetSlot = idx;
+            // Get existing macro to preserve other props if needed
+            const existing = macros[idx];
+            newMacro = {
+                ...existing,
+                size,
+                config: {
+                    ...existing.config,
+                    widgetType: 'rss',
+                    feedUrls,
+                    updateInterval
+                }
+            };
+        }
+    } else {
+        // Creating new macro
+        // Find first empty slot
+        for (let i = 0; i < 12; i++) {
+            if (!macros[i]) {
+                targetSlot = i;
+                break;
+            }
+        }
+
+        if (targetSlot === -1) {
+            alert('Deck is full! Remove a macro first.');
+            return;
+        }
+
+        const id = 'macro-' + Date.now();
+        newMacro = {
+            id,
+            label: 'RSS Feed',
+            type: 'library',
+            size,
+            config: {
+                widgetType: 'rss',
+                feedUrls: feedUrls,
+                updateInterval: updateInterval
+            },
+            iconData: null,
+            rssItems: [],
+            rssCurrentIndex: 0,
+            rssCurrentImage: null
+        };
+    }
+
+    if (targetSlot !== -1 && newMacro) {
+        macros[targetSlot] = newMacro;
+
+        // Fetch RSS feeds immediately
+        try {
+            const items = await fetchRssFeeds(feedUrls);
+            newMacro.rssItems = items;
+            if (items.length > 0) {
+                newMacro.rssCurrentIndex = 0;
+                const firstItem = items[0];
+                if (firstItem.image) {
+                    newMacro.rssCurrentImage = firstItem.image;
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching RSS feeds:', error);
+        }
+
+        saveMacrosAndSettings();
+        renderDeckGrid();
+        closeRssConfigModal();
+
+        // Restart updates for this macro
+        startRssUpdates(newMacro);
+    }
+}
+
+// --- Central Edit Logic ---
+
+function editMacro(macro) {
+    if (!macro) return;
+
+    if (macro.type === 'library') {
+        if (macro.config && macro.config.widgetType === 'rss') {
+            openRssConfigModal(macro);
+        } else {
+            // Other library widgets use the standard modal (restricted view)
+            openMacroModal(macro);
+        }
+    } else {
+        // Standard macro editing
+        openMacroModal(macro);
+    }
+}
 

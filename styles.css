@@ -547,6 +547,14 @@ body {
     overflow-y: auto;
 }
 
+.span-2 {
+    grid-column: span 2;
+}
+
+.span-3 {
+    grid-column: span 3;
+}
+
 .deck-key {
     position: relative;
     border-radius: 14px;

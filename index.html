@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MacroSwag</title>
     <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
     <div class="app-container theme-default">
         <!-- Title Bar -->
@@ -14,8 +16,8 @@
                 <span class="app-title">MacroSwag</span>
             </div>
             <div class="title-bar-center title-bar-drag"></div>
-                <div class="title-bar-controls">
-                    <button class="title-bar-button settings" id="settings-btn" title="Theme Settings">☼</button>
+            <div class="title-bar-controls">
+                <button class="title-bar-button settings" id="settings-btn" title="Theme Settings">☼</button>
                 <button class="title-bar-button minimize" id="minimize-btn" title="Minimize">−</button>
                 <button class="title-bar-button close" id="close-btn" title="Close">×</button>
             </div>
@@ -29,7 +31,8 @@
                 <div class="album-art-container">
                     <div class="album-art" id="album-art">
                         <div class="album-art-placeholder">
-                            <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="1.5">
                                 <path d="M9 18V5l12-2v13"></path>
                                 <circle cx="6" cy="18" r="3"></circle>
                                 <circle cx="18" cy="16" r="3"></circle>
@@ -55,28 +58,25 @@
                 <!-- Wavy Progress Bar -->
                 <div class="progress-container">
                     <div class="wavy-progress-bar" id="wavy-progress-bar">
-                        <svg class="wavy-wave" viewBox="0 0 320 12" preserveAspectRatio="none" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
+                        <svg class="wavy-wave" viewBox="0 0 320 12" preserveAspectRatio="none"
+                            style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;">
                             <defs>
                                 <clipPath id="wavy-clip">
-                                    <path d="M0,6 Q10,2 20,6 T40,6 T60,6 T80,6 T100,6 T120,6 T140,6 T160,6 T180,6 T200,6 T220,6 T240,6 T260,6 T280,6 T300,6 T320,6" />
+                                    <path
+                                        d="M0,6 Q10,2 20,6 T40,6 T60,6 T80,6 T100,6 T120,6 T140,6 T160,6 T180,6 T200,6 T220,6 T240,6 T260,6 T280,6 T300,6 T320,6" />
                                 </clipPath>
                             </defs>
                             <!-- Background track -->
-                            <path d="M0,6 Q10,2 20,6 T40,6 T60,6 T80,6 T100,6 T120,6 T140,6 T160,6 T180,6 T200,6 T220,6 T240,6 T260,6 T280,6 T300,6 T320,6" 
-                                  stroke="rgba(255, 255, 255, 0.15)" 
-                                  stroke-width="4" 
-                                  fill="none" 
-                                  stroke-linecap="round" />
+                            <path
+                                d="M0,6 Q10,2 20,6 T40,6 T60,6 T80,6 T100,6 T120,6 T140,6 T160,6 T180,6 T200,6 T220,6 T240,6 T260,6 T280,6 T300,6 T320,6"
+                                stroke="rgba(255, 255, 255, 0.15)" stroke-width="4" fill="none"
+                                stroke-linecap="round" />
                             <!-- Filled progress -->
-                            <path id="wavy-progress-path" 
-                                  d="M0,6 Q10,2 20,6 T40,6 T60,6 T80,6 T100,6 T120,6 T140,6 T160,6 T180,6 T200,6 T220,6 T240,6 T260,6 T280,6 T300,6 T320,6" 
-                                  stroke="#FFFFFF" 
-                                  stroke-width="4" 
-                                  fill="none" 
-                                  stroke-linecap="round"
-                                  stroke-dasharray="1000"
-                                  stroke-dashoffset="1000"
-                                  style="transition: stroke-dashoffset 0.1s linear;" />
+                            <path id="wavy-progress-path"
+                                d="M0,6 Q10,2 20,6 T40,6 T60,6 T80,6 T100,6 T120,6 T140,6 T160,6 T180,6 T200,6 T220,6 T240,6 T260,6 T280,6 T300,6 T320,6"
+                                stroke="#FFFFFF" stroke-width="4" fill="none" stroke-linecap="round"
+                                stroke-dasharray="1000" stroke-dashoffset="1000"
+                                style="transition: stroke-dashoffset 0.1s linear;" />
                         </svg>
                         <div class="progress-thumb" id="progress-thumb"></div>
                     </div>
@@ -89,7 +89,8 @@
                 <!-- Media Controls -->
                 <div class="media-controls">
                     <button class="control-btn" id="prev-btn" title="Previous">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
                             <polygon points="19 20 9 12 19 4 19 20"></polygon>
                             <line x1="5" y1="19" x2="5" y2="5"></line>
                         </svg>
@@ -98,13 +99,15 @@
                         <svg class="play-icon" width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
                             <polygon points="5 3 19 12 5 21 5 3"></polygon>
                         </svg>
-                        <svg class="pause-icon" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" style="display: none;">
+                        <svg class="pause-icon" width="28" height="28" viewBox="0 0 24 24" fill="currentColor"
+                            style="display: none;">
                             <rect x="6" y="4" width="4" height="16"></rect>
                             <rect x="14" y="4" width="4" height="16"></rect>
                         </svg>
                     </button>
                     <button class="control-btn" id="next-btn" title="Next">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
                             <polygon points="5 4 15 12 5 20 5 4"></polygon>
                             <line x1="19" y1="5" x2="19" y2="19"></line>
                         </svg>
@@ -150,15 +153,27 @@
                             <option value="keyboard">Keyboard Shortcut</option>
                             <option value="website">Website</option>
                             <option value="app">Application</option>
+                            <option value="library" disabled hidden>Library Widget</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label for="macro-size">Size</label>
+                        <select id="macro-size">
+                            <option value="1">1 Block (1x1)</option>
+                            <option value="2">2 Blocks (2x1)</option>
+                            <option value="3">3 Blocks (3x1)</option>
                         </select>
                     </div>
                     <div class="form-row" id="macro-config-keyboard">
                         <label for="macro-keys">Keyboard Shortcut</label>
                         <div style="display: flex; gap: 8px; align-items: center;">
-                            <input type="text" id="macro-keys" placeholder="Press Record to capture shortcut" readonly style="flex: 1;" />
-                            <button type="button" id="record-shortcut-btn" class="pill-button" style="white-space: nowrap;">Record</button>
+                            <input type="text" id="macro-keys" placeholder="Press Record to capture shortcut" readonly
+                                style="flex: 1;" />
+                            <button type="button" id="record-shortcut-btn" class="pill-button"
+                                style="white-space: nowrap;">Record</button>
                         </div>
-                        <div id="recorded-shortcut-display" style="margin-top: 8px; font-size: 12px; color: var(--text-secondary); display: none;">
+                        <div id="recorded-shortcut-display"
+                            style="margin-top: 8px; font-size: 12px; color: var(--text-secondary); display: none;">
                             <span id="recorded-keys-text"></span>
                         </div>
                     </div>
@@ -169,8 +184,10 @@
                     <div class="form-row" id="macro-config-app" style="display:none;">
                         <label for="macro-app-path">Application Path</label>
                         <div style="display: flex; gap: 8px; align-items: center;">
-                            <input type="text" id="macro-app-path" placeholder="Select an application..." readonly style="flex: 1;" />
-                            <button type="button" id="browse-app-btn" class="pill-button" style="white-space: nowrap;">Browse</button>
+                            <input type="text" id="macro-app-path" placeholder="Select an application..." readonly
+                                style="flex: 1;" />
+                            <button type="button" id="browse-app-btn" class="pill-button"
+                                style="white-space: nowrap;">Browse</button>
                         </div>
                         <label for="macro-app-args">Arguments (optional)</label>
                         <input type="text" id="macro-app-args" placeholder="--flag" />
@@ -192,7 +209,8 @@
                             <div class="icon-preview-box">
                                 <img id="icon-preview" src="" alt="Preview" />
                             </div>
-                            <button type="button" id="crop-icon-btn" class="pill-button" style="margin-top: 8px; width: 100%;">Crop & Adjust Icon</button>
+                            <button type="button" id="crop-icon-btn" class="pill-button"
+                                style="margin-top: 8px; width: 100%;">Crop & Adjust Icon</button>
                         </div>
                     </div>
                 </div>
@@ -312,11 +330,20 @@
                 <div class="modal-body">
                     <div class="form-row">
                         <label for="rss-feeds-input">RSS Feed URLs (one per line)</label>
-                        <textarea id="rss-feeds-input" rows="6" placeholder="https://example.com/feed.xml&#10;https://another-site.com/rss"></textarea>
+                        <textarea id="rss-feeds-input" rows="6"
+                            placeholder="https://example.com/feed.xml&#10;https://another-site.com/rss"></textarea>
                     </div>
                     <div class="form-row">
                         <label for="rss-update-interval">Update Interval (seconds)</label>
                         <input type="number" id="rss-update-interval" value="5" min="3" max="60" />
+                    </div>
+                    <div class="form-row">
+                        <label for="rss-size">Size</label>
+                        <select id="rss-size">
+                            <option value="1">1 Block (1x1)</option>
+                            <option value="2">2 Blocks (2x1)</option>
+                            <option value="3">3 Blocks (3x1)</option>
+                        </select>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -329,5 +356,5 @@
 
     <script src="renderer.js"></script>
 </body>
-</html>
 
+</html>
