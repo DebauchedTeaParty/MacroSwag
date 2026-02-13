@@ -945,7 +945,7 @@ function renderDeckGrid() {
                 const widgetIcon = document.createElement('div');
                 widgetIcon.classList.add('widget-icon');
                 widgetIcon.id = `widget-icon-${macro.id}`;
-                widgetIcon.textContent = getWidgetIcon(macro.config?.widgetType || 'cpu');
+                widgetIcon.innerHTML = getWidgetIcon(macro.config?.widgetType || 'cpu');
 
                 const widgetLabel = document.createElement('div');
                 widgetLabel.classList.add('widget-label');
@@ -2832,6 +2832,30 @@ function setupKeyboardRecorder() {
             return;
         }
 
+        // Ignore modifier-only keys (Control, Alt, Shift, Meta) - we only want actual keys with modifiers
+        const isModifierOnly = (keyData.key === 'Control' || keyData.key === 'Alt' || 
+                                keyData.key === 'Shift' || keyData.key === 'Meta' ||
+                                keyData.key === 'LEFT SHIFT' || keyData.key === 'RIGHT SHIFT' ||
+                                keyData.key === 'LEFT CONTROL' || keyData.key === 'RIGHT CONTROL' ||
+                                keyData.key === 'LEFT ALT' || keyData.key === 'RIGHT ALT');
+        
+        if (isModifierOnly) {
+            // Don't record modifier-only events, but update keyModifiers for display
+            if (keyData.key === 'Control' || keyData.key === 'LEFT CONTROL' || keyData.key === 'RIGHT CONTROL') {
+                keyModifiers.ctrl = true;
+            }
+            if (keyData.key === 'Alt' || keyData.key === 'LEFT ALT' || keyData.key === 'RIGHT ALT') {
+                keyModifiers.alt = true;
+            }
+            if (keyData.key === 'Shift' || keyData.key === 'LEFT SHIFT' || keyData.key === 'RIGHT SHIFT') {
+                keyModifiers.shift = true;
+            }
+            if (keyData.key === 'Meta' || keyData.key === 'LEFT META' || keyData.key === 'RIGHT META') {
+                keyModifiers.meta = true;
+            }
+            return; // Don't record modifier-only events
+        }
+
         // Record the key combination including modifiers
         // The main process now only sends non-modifier keys, so we can record directly
         const keyCombo = {
@@ -2842,6 +2866,17 @@ function setupKeyboardRecorder() {
             meta: keyData.meta || false,
             code: keyData.code
         };
+
+        // Check if this is the same as the last recorded key (prevent duplicates from key repeat)
+        if (lastRecordedKey &&
+            lastRecordedKey.key === keyCombo.key &&
+            lastRecordedKey.ctrl === keyCombo.ctrl &&
+            lastRecordedKey.alt === keyCombo.alt &&
+            lastRecordedKey.shift === keyCombo.shift &&
+            lastRecordedKey.meta === keyCombo.meta) {
+            // Same key combination, ignore (likely key repeat)
+            return;
+        }
 
         // Clear any existing recorded keys - we only want the latest combination
         // This prevents duplicates like "Left Shift + Left Win + S + Win + Shift + S"
@@ -3136,24 +3171,23 @@ let systemStats = null;
 
 function getWidgetIcon(widgetType) {
     const icons = {
-        cpu: '⚡',
-        // Use a RAM-style emoji for memory to better represent RAM
-        memory: '🧠',
-        disk: '💿',
-        bandwidth: '📡',
-        clock: '🕐',
-        rss: '📰',
-        crypto: '💰',
-        pomodoro: '🍅',
-        ifttt: '🔗',
-        stocks: '📈',
-        weather: '🌤️',
-        gpu: '🎮',
-        folder: '📁',
-        tts: '🔊',
-        stopwatch: '⏱️'
+        cpu: '<i class="fa fa-bolt"></i>',
+        memory: '<i class="fa fa-microchip"></i>',
+        disk: '<i class="fa fa-hdd-o"></i>',
+        bandwidth: '<i class="fa fa-wifi"></i>',
+        clock: '<i class="fa fa-clock-o"></i>',
+        rss: '<i class="fa fa-rss"></i>',
+        crypto: '<i class="fa fa-bitcoin"></i>',
+        pomodoro: '<i class="fa fa-hourglass"></i>',
+        ifttt: '<i class="fa fa-link"></i>',
+        stocks: '<i class="fa fa-line-chart"></i>',
+        weather: '<i class="fa fa-sun-o"></i>',
+        gpu: '<i class="fa fa-desktop"></i>',
+        folder: '<i class="fa fa-folder-o"></i>',
+        tts: '<i class="fa fa-volume-up"></i>',
+        stopwatch: '<i class="fa fa-hourglass-o"></i>'
     };
-    return icons[widgetType] || '📊';
+    return icons[widgetType] || '<i class="fa fa-bar-chart"></i>';
 }
 
 function getWidgetLabel(widgetType) {
@@ -3189,18 +3223,18 @@ function getWeatherIcon(weatherCode) {
     // Snow: 71-77, 85-86
     // Thunderstorm: 95-99
     
-    if (weatherCode === 0 || weatherCode === 1) return '☀️'; // Clear sky
-    if (weatherCode === 2) return '🌤️'; // Partly cloudy
-    if (weatherCode === 3) return '☁️'; // Cloudy
-    if (weatherCode === 45 || weatherCode === 48) return '🌫️'; // Fog
-    if (weatherCode >= 51 && weatherCode <= 57) return '🌦️'; // Drizzle
-    if (weatherCode >= 61 && weatherCode <= 67) return '🌧️'; // Rain
-    if (weatherCode >= 71 && weatherCode <= 77) return '🌨️'; // Snow
-    if (weatherCode >= 80 && weatherCode <= 82) return '🌧️'; // Rain showers
-    if (weatherCode >= 85 && weatherCode <= 86) return '🌨️'; // Snow showers
-    if (weatherCode >= 95 && weatherCode <= 99) return '⛈️'; // Thunderstorm
+    if (weatherCode === 0 || weatherCode === 1) return '<i class="fa fa-sun-o"></i>'; // Clear sky
+    if (weatherCode === 2) return '<i class="fa fa-cloud"></i>'; // Partly cloudy
+    if (weatherCode === 3) return '<i class="fa fa-cloud"></i>'; // Cloudy
+    if (weatherCode === 45 || weatherCode === 48) return '<i class="fa fa-cloud"></i>'; // Fog
+    if (weatherCode >= 51 && weatherCode <= 57) return '<i class="fa fa-tint"></i>'; // Drizzle
+    if (weatherCode >= 61 && weatherCode <= 67) return '<i class="fa fa-tint"></i>'; // Rain
+    if (weatherCode >= 71 && weatherCode <= 77) return '<i class="fa fa-snowflake-o"></i>'; // Snow
+    if (weatherCode >= 80 && weatherCode <= 82) return '<i class="fa fa-tint"></i>'; // Rain showers
+    if (weatherCode >= 85 && weatherCode <= 86) return '<i class="fa fa-snowflake-o"></i>'; // Snow showers
+    if (weatherCode >= 95 && weatherCode <= 99) return '<i class="fa fa-bolt"></i>'; // Thunderstorm
     
-    return '🌤️'; // Default
+    return '<i class="fa fa-sun-o"></i>'; // Default
 }
 
 function formatBytes(bytes) {
@@ -3339,7 +3373,7 @@ function updateWidgets() {
                     // Update icon based on weather
                     const widgetIconEl = document.getElementById(`widget-icon-${macro.id}`);
                     if (widgetIconEl) {
-                        widgetIconEl.textContent = getWeatherIcon(weatherCode);
+                        widgetIconEl.innerHTML = getWeatherIcon(weatherCode);
                     }
                     displayValue = `${Math.round(temp)}°`;
                 } else if (macro.weatherError) {
@@ -3747,14 +3781,14 @@ function startWidgetUpdates() {
                 // Update icon in the widget
                 const widgetIconEl = document.getElementById(`widget-icon-${macro.id}`);
                 if (widgetIconEl && macro.weatherData) {
-                    widgetIconEl.textContent = getWeatherIcon(macro.weatherData.weatherCode);
+                    widgetIconEl.innerHTML = getWeatherIcon(macro.weatherData.weatherCode);
                 }
             });
         } else {
             // Even if not updating, make sure icon is set correctly
             const widgetIconEl = document.getElementById(`widget-icon-${macro.id}`);
             if (widgetIconEl && macro.weatherData) {
-                widgetIconEl.textContent = getWeatherIcon(macro.weatherData.weatherCode);
+                widgetIconEl.innerHTML = getWeatherIcon(macro.weatherData.weatherCode);
             }
         }
     });
@@ -3840,35 +3874,35 @@ const AVAILABLE_WIDGETS = [
     {
         type: 'cpu',
         label: 'CPU Usage',
-        icon: '⚡',
+        icon: '<i class="fa fa-bolt"></i>',
         description: 'Live CPU load percentage.',
         category: 'System Monitors'
     },
     {
         type: 'memory',
         label: 'Memory Usage',
-        icon: '🧠',
+        icon: '<i class="fa fa-microchip"></i>',
         description: 'RAM usage as a percentage.',
         category: 'System Monitors'
     },
     {
         type: 'disk',
         label: 'Disk Usage',
-        icon: '💿',
+        icon: '<i class="fa fa-hdd-o"></i>',
         description: 'Disk space or activity level.',
         category: 'System Monitors'
     },
     {
         type: 'bandwidth',
         label: 'Network Bandwidth',
-        icon: '📡',
+        icon: '<i class="fa fa-wifi"></i>',
         description: 'Upload / download throughput.',
         category: 'System Monitors'
     },
     {
         type: 'gpu',
         label: 'GPU Usage',
-        icon: '🎮',
+        icon: '<i class="fa fa-desktop"></i>',
         description: 'GPU utilization and memory usage.',
         category: 'System Monitors'
     },
@@ -3876,14 +3910,14 @@ const AVAILABLE_WIDGETS = [
     {
         type: 'pomodoro',
         label: 'Pomodoro Timer',
-        icon: '🍅',
+        icon: '<i class="fa fa-hourglass"></i>',
         description: '25-minute work intervals with breaks.',
         category: 'Productivity'
     },
     {
         type: 'stopwatch',
         label: 'Stopwatch',
-        icon: '⏱️',
+        icon: '<i class="fa fa-hourglass-o"></i>',
         description: 'Track elapsed time with start/stop/reset.',
         category: 'Productivity'
     },
@@ -3891,35 +3925,35 @@ const AVAILABLE_WIDGETS = [
     {
         type: 'clock',
         label: 'Clock',
-        icon: '🕐',
+        icon: '<i class="fa fa-clock-o"></i>',
         description: 'Digital system time.',
         category: 'Information'
     },
     {
         type: 'weather',
         label: 'Weather',
-        icon: '🌤️',
+        icon: '<i class="fa fa-sun-o"></i>',
         description: 'Current weather conditions and temperature.',
         category: 'Information'
     },
     {
         type: 'rss',
         label: 'RSS Feed',
-        icon: '📰',
+        icon: '<i class="fa fa-rss"></i>',
         description: 'Scroll through RSS headlines and images.',
         category: 'Information'
     },
     {
         type: 'stocks',
         label: 'Stock Ticker',
-        icon: '📈',
+        icon: '<i class="fa fa-line-chart"></i>',
         description: 'Live stock prices via Alpha Vantage.',
         category: 'Information'
     },
     {
         type: 'crypto',
         label: 'Cryptoticker',
-        icon: '💰',
+        icon: '<i class="fa fa-bitcoin"></i>',
         description: 'Live crypto prices via CoinMarketCap.',
         category: 'Information'
     },
@@ -3927,7 +3961,7 @@ const AVAILABLE_WIDGETS = [
     {
         type: 'ifttt',
         label: 'IFTTT Webhook',
-        icon: '🔗',
+        icon: '<i class="fa fa-link"></i>',
         description: 'Trigger IFTTT automations and applets.',
         category: 'Automation'
     },
@@ -3935,7 +3969,7 @@ const AVAILABLE_WIDGETS = [
     {
         type: 'tts',
         label: 'Text to Speech',
-        icon: '🔊',
+        icon: '<i class="fa fa-volume-up"></i>',
         description: 'Convert text to speech using Deepgram API.',
         category: 'Media'
     },
@@ -3943,7 +3977,7 @@ const AVAILABLE_WIDGETS = [
     {
         type: 'folder',
         label: 'Folder',
-        icon: '📁',
+        icon: '<i class="fa fa-folder-o"></i>',
         description: 'Organize macros into folders.',
         category: 'Organization'
     }
@@ -3992,7 +4026,7 @@ function openLibraryModal() {
 
             const widgetIcon = document.createElement('div');
             widgetIcon.classList.add('widget-icon');
-            widgetIcon.textContent = widget.icon;
+            widgetIcon.innerHTML = widget.icon;
 
             const widgetLabel = document.createElement('div');
             widgetLabel.classList.add('widget-label');

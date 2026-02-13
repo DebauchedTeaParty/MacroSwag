@@ -218,7 +218,8 @@ ipcMain.handle('execute-macro', async (event, macro) => {
 
     switch (macro.type) {
       case 'keyboard': {
-        // Use PowerShell + Windows.Forms SendKeys so we avoid native addons
+        // Use C# helper executable for reliable system-level key injection
+        // This uses SendInput API directly, similar to how hardware Stream Decks work
         const sequence = macro.config?.keys || '';
         console.log('Executing keyboard macro, sequence:', sequence);
         console.log('Full macro config:', JSON.stringify(macro.config));
@@ -228,37 +229,59 @@ ipcMain.handle('execute-macro', async (event, macro) => {
           return { success: false, error: 'No key sequence provided' };
         }
         
-        // Properly escape the sequence for PowerShell
-        // Use double quotes and escape them properly for PowerShell strings
-        const escapedSequence = sequence.replace(/"/g, '""').replace(/\$/g, '`$');
+        // Use the KeySender.exe helper
+        // Try multiple possible paths for the executable
+        const possiblePaths = [
+          path.join(__dirname, 'KeySender', 'bin', 'Release', 'net6.0', 'win-x64', 'KeySender.exe'),
+          path.join(__dirname, 'KeySender', 'bin', 'Release', 'net6.0', 'win-x64', 'KeySender.dll'),
+          path.join(__dirname, 'KeySender', 'KeySender.exe')
+        ];
         
-        // Build PowerShell script - use a simple approach without here-strings
-        // Create a temporary script file to avoid escaping issues
-        const tempScriptPath = path.join(os.tmpdir(), `sendkeys-${Date.now()}.ps1`);
-        // Use SendWait with proper escaping - SendKeys format: # = Win, + = Shift, ^ = Ctrl, % = Alt
-        const psScript = `Add-Type -AssemblyName System.Windows.Forms\n[System.Windows.Forms.SendKeys]::SendWait("${escapedSequence}")\nStart-Sleep -Milliseconds 100`;
+        let keySenderPath = null;
+        for (const possiblePath of possiblePaths) {
+          if (fs.existsSync(possiblePath)) {
+            keySenderPath = possiblePath;
+            break;
+          }
+        }
         
-        fs.writeFileSync(tempScriptPath, psScript, 'utf8');
+        if (!keySenderPath) {
+          console.error('KeySender executable not found. Please build it first.');
+          return { success: false, error: 'KeySender executable not found' };
+        }
         
-        console.log('PowerShell script content:', psScript);
-        console.log('Escaped sequence:', escapedSequence);
+        // Check if the executable exists, if not, try to build it
+        if (!fs.existsSync(keySenderPath)) {
+          console.log('KeySender.exe not found, attempting to build...');
+          try {
+            const buildPath = path.join(__dirname, 'KeySender');
+            exec(`dotnet build "${buildPath}" -c Release -r win-x64`, (buildErr, buildStdout, buildStderr) => {
+              if (buildErr) {
+                console.error('Failed to build KeySender:', buildErr);
+                console.error('Build stderr:', buildStderr);
+              } else {
+                console.log('KeySender built successfully');
+              }
+            });
+          } catch (buildError) {
+            console.error('Error building KeySender:', buildError);
+          }
+        }
+        
+        // Escape the sequence for command line (wrap in quotes)
+        const escapedSequence = `"${sequence.replace(/"/g, '\\"')}"`;
 
         await new Promise((resolve, reject) => {
-          exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tempScriptPath}"`, { timeout: 5000 }, (err, stdout, stderr) => {
-            // Clean up temp file
-            try {
-              fs.unlinkSync(tempScriptPath);
-            } catch (cleanupErr) {
-              // Ignore cleanup errors
-            }
-            
+          exec(`"${keySenderPath}" ${escapedSequence}`, { timeout: 5000 }, (err, stdout, stderr) => {
             if (err) {
-              console.error('Error executing SendKeys:', err);
-              console.error('PowerShell stderr:', stderr);
+              console.error('Error executing KeySender:', err);
+              console.error('KeySender stderr:', stderr);
+              console.error('KeySender stdout:', stdout);
               reject(err);
             } else {
-              console.log('SendKeys executed successfully');
-              if (stdout) console.log('PowerShell stdout:', stdout);
+              console.log('KeySender executed successfully');
+              if (stdout) console.log('KeySender stdout:', stdout);
+              if (stderr) console.log('KeySender stderr:', stderr);
               resolve();
             }
           });
@@ -646,13 +669,19 @@ function startGlobalKeyListener() {
       // Only record when a NON-MODIFIER key is pressed
       // This prevents recording "Shift" or "Control" alone, and prevents duplicates
       const isModifier = (mappedKeyName === 'Control' || mappedKeyName === 'Alt' || 
-                         mappedKeyName === 'Shift' || mappedKeyName === 'Meta');
+                         mappedKeyName === 'Shift' || mappedKeyName === 'Meta' ||
+                         mappedKeyName === 'LEFT SHIFT' || mappedKeyName === 'RIGHT SHIFT' ||
+                         mappedKeyName === 'LEFT CONTROL' || mappedKeyName === 'RIGHT CONTROL' ||
+                         mappedKeyName === 'LEFT ALT' || mappedKeyName === 'RIGHT ALT');
       
       // Skip recording if this is just a modifier key - we'll record when the actual key is pressed
       if (isModifier) {
         // Still block the key to prevent it from executing
         return { stopPropagation: true };
       }
+      
+      // Also skip if this looks like a key release or repeat (same key as last recorded)
+      // We only want to record when a new non-modifier key is pressed with modifiers
 
       // Determine code based on key
       let code = mappedKeyName;
