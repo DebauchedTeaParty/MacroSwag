@@ -21,14 +21,17 @@
     "electron-builder": "^24.9.1"
   },
   "dependencies": {
-    "axios": "^1.6.0"
+    "axios": "^1.6.0",
+    "node-global-key-listener": "^0.3.0"
   },
   "build": {
     "appId": "com.macroswag.app",
     "productName": "MacroSwag",
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "signAndEditExecutable": false
     },
     "files": [
       "**/*",
@@ -46,4 +49,3 @@
     ]
   }
 }
-

@@ -6,6 +6,7 @@ const os = require('os');
 const fs = require('fs');
 const MediaController = require('./mediaController');
 const { loadStore, saveStore } = require('./macrosStore');
+const { GlobalKeyboardListener } = require('node-global-key-listener');
 
 let mainWindow;
 let mediaController = null;
@@ -219,22 +220,47 @@ ipcMain.handle('execute-macro', async (event, macro) => {
       case 'keyboard': {
         // Use PowerShell + Windows.Forms SendKeys so we avoid native addons
         const sequence = macro.config?.keys || '';
+        console.log('Executing keyboard macro, sequence:', sequence);
+        console.log('Full macro config:', JSON.stringify(macro.config));
+        
         if (!sequence) {
+          console.error('No key sequence provided in macro.config.keys');
           return { success: false, error: 'No key sequence provided' };
         }
-        const ps = [
-          '$sig = @"',
-          'using System;',
-          'using System.Windows.Forms;',
-          '"@',
-          'Add-Type -TypeDefinition $sig -ReferencedAssemblies System.Windows.Forms',
-          `[System.Windows.Forms.SendKeys]::SendWait("${sequence.replace(/"/g, '""')}")`,
-        ].join('\n');
+        
+        // Properly escape the sequence for PowerShell
+        // Use double quotes and escape them properly for PowerShell strings
+        const escapedSequence = sequence.replace(/"/g, '""').replace(/\$/g, '`$');
+        
+        // Build PowerShell script - use a simple approach without here-strings
+        // Create a temporary script file to avoid escaping issues
+        const tempScriptPath = path.join(os.tmpdir(), `sendkeys-${Date.now()}.ps1`);
+        // Use SendWait with proper escaping - SendKeys format: # = Win, + = Shift, ^ = Ctrl, % = Alt
+        const psScript = `Add-Type -AssemblyName System.Windows.Forms\n[System.Windows.Forms.SendKeys]::SendWait("${escapedSequence}")\nStart-Sleep -Milliseconds 100`;
+        
+        fs.writeFileSync(tempScriptPath, psScript, 'utf8');
+        
+        console.log('PowerShell script content:', psScript);
+        console.log('Escaped sequence:', escapedSequence);
 
         await new Promise((resolve, reject) => {
-          exec(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${ps.replace(/\n/g, '`n').replace(/"/g, '\\"')}"`, (err) => {
-            if (err) reject(err);
-            else resolve();
+          exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tempScriptPath}"`, { timeout: 5000 }, (err, stdout, stderr) => {
+            // Clean up temp file
+            try {
+              fs.unlinkSync(tempScriptPath);
+            } catch (cleanupErr) {
+              // Ignore cleanup errors
+            }
+            
+            if (err) {
+              console.error('Error executing SendKeys:', err);
+              console.error('PowerShell stderr:', stderr);
+              reject(err);
+            } else {
+              console.log('SendKeys executed successfully');
+              if (stdout) console.log('PowerShell stdout:', stdout);
+              resolve();
+            }
           });
         });
         return { success: true };
@@ -251,9 +277,62 @@ ipcMain.handle('execute-macro', async (event, macro) => {
         const exePath = macro.config?.path;
         const args = macro.config?.args || '';
         if (!exePath) return { success: false, error: 'No application path provided' };
-        exec(`start "" "${exePath}" ${args}`, (err) => {
-          if (err) console.error('App macro error:', err);
-        });
+        
+        // Check if this is a Windows Store app (UWP app)
+        // Windows Store apps are typically in C:\Program Files\WindowsApps
+        const isWindowsStoreApp = exePath.includes('WindowsApps') || 
+                                  exePath.includes('Microsoft.WindowsStore') ||
+                                  exePath.endsWith('.appx') ||
+                                  exePath.endsWith('.appxbundle');
+        
+        if (isWindowsStoreApp) {
+          // Try to launch Windows Store app using its AUMID or protocol
+          // First, try to get the AUMID from the app manifest
+          const psScript = `
+            $appPath = "${exePath.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"
+            try {
+              # Try to find the app's AppUserModelId
+              $appxManifest = Get-ChildItem -Path (Split-Path $appPath) -Filter "AppxManifest.xml" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($appxManifest) {
+                [xml]$manifest = Get-Content $appxManifest.FullName
+                $aumid = $manifest.Package.Identity.Name + "!" + $manifest.Package.Applications.Application.Id
+                Write-Output $aumid
+              } else {
+                # Fallback: try to launch using shell: protocol or explorer
+                Write-Output "FALLBACK"
+              }
+            } catch {
+              Write-Output "FALLBACK"
+            }
+          `;
+          
+          exec(`powershell -NoProfile -ExecutionPolicy Bypass -Command "${psScript.replace(/"/g, '\\"').replace(/\n/g, '`n')}"`, (err, stdout, stderr) => {
+            if (!err && stdout && !stdout.trim().includes('FALLBACK')) {
+              const aumid = stdout.trim();
+              // Launch using explorer.exe with the AUMID
+              exec(`explorer.exe shell:AppsFolder\\${aumid}`, (launchErr) => {
+                if (launchErr) {
+                  console.error('Error launching Windows Store app:', launchErr);
+                  // Fallback to trying shell.openExternal
+                  shell.openExternal(exePath).catch(e => console.error('Fallback launch error:', e));
+                }
+              });
+            } else {
+              // Fallback: try using shell.openExternal or start command
+              shell.openExternal(exePath).catch(() => {
+                // Last resort: try start command
+                exec(`start "" "${exePath}" ${args}`, (startErr) => {
+                  if (startErr) console.error('App macro error:', startErr);
+                });
+              });
+            }
+          });
+        } else {
+          // Regular application - use standard launch method
+          exec(`start "" "${exePath}" ${args}`, (err) => {
+            if (err) console.error('App macro error:', err);
+          });
+        }
         return { success: true };
       }
 
@@ -339,17 +418,297 @@ ipcMain.handle('execute-macro', async (event, macro) => {
 
 // Keyboard recording state
 let isRecordingKeys = false;
+let keyboardHookProcess = null;
+let globalKeyListener = null;
+let recordingStopTime = 0; // Timestamp when recording was stopped to ignore events immediately after
+let keysCurrentlyDown = new Set(); // Track which keys are currently pressed
+let autoStopTimeout = null; // Timeout to auto-stop when all keys are released
 
 // Handle keyboard recording
 ipcMain.handle('start-key-recording', () => {
   isRecordingKeys = true;
+  recordingStopTime = 0; // Reset stop time when starting
+  keysCurrentlyDown.clear(); // Clear tracked keys
+  if (autoStopTimeout) {
+    clearTimeout(autoStopTimeout);
+    autoStopTimeout = null;
+  }
+  startGlobalKeyListener();
   return { success: true };
 });
 
 ipcMain.handle('stop-key-recording', () => {
   isRecordingKeys = false;
+  recordingStopTime = Date.now(); // Mark when we stopped to ignore events for a short time
+  keysCurrentlyDown.clear(); // Clear tracked keys
+  if (autoStopTimeout) {
+    clearTimeout(autoStopTimeout);
+    autoStopTimeout = null;
+  }
+  stopGlobalKeyListener();
   return { success: true };
 });
+
+// Global keyboard listener using node-global-key-listener
+function startGlobalKeyListener() {
+  if (globalKeyListener) {
+    // Already running
+    return;
+  }
+
+  try {
+    globalKeyListener = new GlobalKeyboardListener();
+
+    // Listen for all key events
+    // IMPORTANT: This listener is ONLY active when the user is recording a keyboard shortcut.
+    // It is completely disabled when not recording to minimize security concerns.
+    // The callback receives (e, isDown) where e is the event and isDown is an object tracking pressed keys
+    globalKeyListener.addListener((e, isDown) => {
+      // Early exit if not recording - this ensures the hook is inactive when not needed
+      if (!isRecordingKeys || !mainWindow || !mainWindow.webContents) {
+        return;
+      }
+
+      // Ignore events for 200ms after stopping recording to prevent capturing clicks
+      if (recordingStopTime && (Date.now() - recordingStopTime) < 200) {
+        return;
+      }
+
+      // Track key up events to detect when all keys are released
+      if (e.state === 'UP') {
+        if (e.name) {
+          keysCurrentlyDown.delete(e.name);
+        }
+        
+        // Check if all keys are released
+        const allKeysUp = keysCurrentlyDown.size === 0;
+        if (allKeysUp && autoStopTimeout === null) {
+          // Wait a bit to make sure no more keys are coming, then auto-stop
+          autoStopTimeout = setTimeout(() => {
+            if (keysCurrentlyDown.size === 0 && isRecordingKeys) {
+              // Send message to renderer to stop recording
+              mainWindow.webContents.send('auto-stop-recording');
+              isRecordingKeys = false;
+              recordingStopTime = Date.now();
+            }
+            autoStopTimeout = null;
+          }, 300); // 300ms delay to ensure all keys are released
+        }
+        return;
+      }
+
+      // Only process keydown events
+      if (e.state !== 'DOWN') {
+        return;
+      }
+
+      // Track that this key is now down
+      if (e.name) {
+        keysCurrentlyDown.add(e.name);
+      }
+      
+      // Clear auto-stop timeout since a key was pressed
+      if (autoStopTimeout) {
+        clearTimeout(autoStopTimeout);
+        autoStopTimeout = null;
+      }
+
+      // Filter out mouse events - check if this is a keyboard event
+      // Mouse events typically have location data but no key name, or have mouse-related properties
+      if (!e.name || e.name === '' || e.name === undefined) {
+        return; // Likely a mouse event
+      }
+
+      // The event object has a 'name' property which is the key name
+      // Windows keys are 'LWIN' and 'RWIN' according to WinGlobalKeyLookup
+      const keyName = e.name;
+      
+      // Check if it's a Windows key - Windows keys are named "LWIN" or "RWIN"
+      // Also check rawKey.standardName which might be "LEFT META" or "RIGHT META"
+      const rawKeyName = e.rawKey?.standardName || '';
+      const isWindowsKey = keyName && (
+        keyName === 'LWIN' || 
+        keyName === 'RWIN' ||
+        keyName.includes('META') || 
+        keyName.includes('WIN') || 
+        keyName === '91' || 
+        keyName === '92' ||
+        rawKeyName.includes('META')
+      );
+
+      // Map key names to standard names
+      let mappedKeyName = keyName;
+      if (isWindowsKey) {
+        mappedKeyName = 'Meta';
+      } else if (keyName === 'CONTROL' || keyName === '17') {
+        mappedKeyName = 'Control';
+      } else if (keyName === 'ALT' || keyName === '18') {
+        mappedKeyName = 'Alt';
+      } else if (keyName === 'SHIFT' || keyName === '16') {
+        mappedKeyName = 'Shift';
+      } else if (keyName === 'ENTER' || keyName === '13') {
+        mappedKeyName = 'Enter';
+      } else if (keyName === 'ESCAPE' || keyName === 'ESC' || keyName === '27') {
+        mappedKeyName = 'Escape';
+      } else if (keyName === 'TAB' || keyName === '9') {
+        mappedKeyName = 'Tab';
+      } else if (keyName === 'BACKSPACE' || keyName === '8') {
+        mappedKeyName = 'Backspace';
+      } else if (keyName === 'DELETE' || keyName === 'DEL' || keyName === '46') {
+        mappedKeyName = 'Delete';
+      } else if (keyName === 'ARROW LEFT' || keyName === '37') {
+        mappedKeyName = 'ArrowLeft';
+      } else if (keyName === 'ARROW UP' || keyName === '38') {
+        mappedKeyName = 'ArrowUp';
+      } else if (keyName === 'ARROW RIGHT' || keyName === '39') {
+        mappedKeyName = 'ArrowRight';
+      } else if (keyName === 'ARROW DOWN' || keyName === '40') {
+        mappedKeyName = 'ArrowDown';
+      } else if (keyName === 'HOME' || keyName === '36') {
+        mappedKeyName = 'Home';
+      } else if (keyName === 'END' || keyName === '35') {
+        mappedKeyName = 'End';
+      } else if (keyName === 'PAGE UP' || keyName === '33') {
+        mappedKeyName = 'PageUp';
+      } else if (keyName === 'PAGE DOWN' || keyName === '34') {
+        mappedKeyName = 'PageDown';
+      } else if (keyName === 'INSERT' || keyName === '45') {
+        mappedKeyName = 'Insert';
+      } else if (keyName.startsWith('F')) {
+        // F keys like F1, F2, etc.
+        mappedKeyName = keyName.toUpperCase();
+      }
+
+      // Ignore Escape (handled separately)
+      if (mappedKeyName === 'Escape') {
+        return;
+      }
+
+      // Get modifier states from the isDown object
+      // Check which modifier keys are currently pressed
+      // The isDown object uses the raw key names from the event, so we need to check all variations
+      // Log isDown keys for debugging
+      const isDownKeys = Object.keys(isDown).filter(k => isDown[k]);
+      console.log('isDown object keys:', isDownKeys);
+      console.log('Current event key name:', e.name);
+      
+      // Check for modifiers by iterating through isDown and checking key names
+      let ctrl = false, alt = false, shift = false;
+      for (const key in isDown) {
+        if (isDown[key]) {
+          const keyUpper = key.toUpperCase();
+          if (keyUpper.includes('CONTROL') || keyUpper.includes('CTRL') || key === '17') {
+            ctrl = true;
+          }
+          if (keyUpper.includes('ALT') || key === '18') {
+            alt = true;
+          }
+          if (keyUpper.includes('SHIFT') || key === '16') {
+            shift = true;
+          }
+        }
+      }
+      
+      // Also check if current key is a modifier
+      if (mappedKeyName === 'Control') ctrl = true;
+      if (mappedKeyName === 'Alt') alt = true;
+      if (mappedKeyName === 'Shift') shift = true;
+      
+      // Check for Windows key in all possible formats
+      // The isDown object uses the event.name as the key
+      // Windows keys are stored as "LWIN" or "RWIN" in isDown
+      let meta = isWindowsKey;
+      if (!meta) {
+        // Check for Windows keys in isDown - they're stored as "LWIN" or "RWIN"
+        meta = isDown['LWIN'] || isDown['RWIN'] || 
+               isDown['META'] || isDown['Meta'] || 
+               isDown['META LEFT'] || isDown['META RIGHT'] ||
+               isDown['LEFT META'] || isDown['RIGHT META'] ||
+               isDown['WIN'] || isDown['Win'] ||
+               isDown['91'] || isDown['92'];
+        
+        // Also check if any key name in isDown contains META or WIN (case-insensitive)
+        if (!meta) {
+          for (const key in isDown) {
+            if (isDown[key] && key && (
+              key.toUpperCase().includes('META') || 
+              key.toUpperCase().includes('WIN') || 
+              key === '91' || 
+              key === '92'
+            )) {
+              meta = true;
+              break;
+            }
+          }
+        }
+      }
+
+      // Only record when a NON-MODIFIER key is pressed
+      // This prevents recording "Shift" or "Control" alone, and prevents duplicates
+      const isModifier = (mappedKeyName === 'Control' || mappedKeyName === 'Alt' || 
+                         mappedKeyName === 'Shift' || mappedKeyName === 'Meta');
+      
+      // Skip recording if this is just a modifier key - we'll record when the actual key is pressed
+      if (isModifier) {
+        // Still block the key to prevent it from executing
+        return { stopPropagation: true };
+      }
+
+      // Determine code based on key
+      let code = mappedKeyName;
+      if (isWindowsKey) {
+        // Try to determine left vs right Windows key
+        if (keyName.includes('RIGHT') || keyName === '92') {
+          code = 'MetaRight';
+        } else {
+          code = 'MetaLeft';
+        }
+      } else if (mappedKeyName === 'Control') {
+        code = 'ControlLeft';
+      } else if (mappedKeyName === 'Alt') {
+        code = 'AltLeft';
+      } else if (mappedKeyName === 'Shift') {
+        code = 'ShiftLeft';
+      }
+
+      const keyData = {
+        key: mappedKeyName,
+        code: code,
+        ctrl: ctrl,
+        alt: alt,
+        shift: shift,
+        meta: meta,
+        type: 'keyDown'
+      };
+
+      // Debug: log the isDown object to see what keys are tracked
+      console.log('Key captured via global listener:', keyData);
+      console.log('isDown object keys:', Object.keys(isDown).filter(k => isDown[k]));
+      console.log('Raw event name:', e.name);
+      mainWindow.webContents.send('key-recorded', keyData);
+      
+      // Return stopPropagation to prevent the shortcut from executing
+      return { stopPropagation: true };
+    });
+
+    console.log('Global keyboard listener started');
+  } catch (error) {
+    console.error('Error starting global keyboard listener:', error);
+    globalKeyListener = null;
+  }
+}
+
+function stopGlobalKeyListener() {
+  if (globalKeyListener) {
+    try {
+      globalKeyListener.kill();
+      globalKeyListener = null;
+      console.log('Global keyboard listener stopped');
+    } catch (error) {
+      console.error('Error stopping global keyboard listener:', error);
+    }
+  }
+}
 
 // Capture keyboard input at main process level
 function setupKeyRecording() {
@@ -362,20 +721,30 @@ function setupKeyRecording() {
       return;
     }
 
+    // Detect Windows key - it can be reported as Meta, Super, OSLeft, or OSRight
+    const isWindowsKey = input.key === 'Meta' || 
+                        input.key === 'Super' || 
+                        input.code === 'MetaLeft' || 
+                        input.code === 'MetaRight' ||
+                        input.code === 'OSLeft' ||
+                        input.code === 'OSRight';
+
     // Prevent default for all keys when recording (except Escape)
-    if (input.key !== 'Escape') {
+    // This is crucial for capturing the Windows key which is normally intercepted by the OS
+    if (input.key !== 'Escape' || isWindowsKey) {
       event.preventDefault();
     }
 
     // Send key info to renderer - always send keydown events
     if (mainWindow && mainWindow.webContents) {
+      
       const keyData = {
         key: input.key,
         code: input.code,
         ctrl: input.control || false,
         alt: input.alt || false,
         shift: input.shift || false,
-        meta: (input.meta || input.super) || false,
+        meta: isWindowsKey || (input.meta || input.super) || false,
         type: input.type || 'keyDown'
       };
 
@@ -874,6 +1243,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  // Clean up keyboard listener
+  stopGlobalKeyListener();
   if (mediaController) {
     mediaController.stop();
   }

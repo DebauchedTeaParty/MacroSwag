@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startKeyRecording: () => ipcRenderer.invoke('start-key-recording'),
   stopKeyRecording: () => ipcRenderer.invoke('stop-key-recording'),
   onKeyRecorded: (callback) => ipcRenderer.on('key-recorded', callback),
+  onAutoStopRecording: (callback) => ipcRenderer.on('auto-stop-recording', callback),
 
   // System stats for widgets
   getSystemStats: (options) => ipcRenderer.invoke('get-system-stats', options),

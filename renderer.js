@@ -2219,6 +2219,10 @@ async function saveMacroFromModal() {
     }
 
     console.log('Macros before save:', macros.length);
+    console.log('Saving macro with config:', JSON.stringify(config));
+    if (type === 'keyboard') {
+        console.log('Keyboard macro keys value:', config.keys);
+    }
     saveMacrosAndSettings();
     renderDeckGrid();
     closeMacroModal();
@@ -2351,6 +2355,10 @@ function setupContextMenu() {
 
 async function executeMacro(macro) {
     try {
+        console.log('executeMacro called with:', macro);
+        console.log('Macro type:', macro.type);
+        console.log('Macro config:', macro.config);
+        
         // For IFTTT macros (library widgets), pass the webhook key from settings
         if (macro.type === 'library' && macro.config && macro.config.widgetType === 'ifttt') {
             const macroWithKey = { ...macro, webhookKey: settings.iftttWebhookKey };
@@ -2360,7 +2368,11 @@ async function executeMacro(macro) {
             const macroWithKey = { ...macro, webhookKey: settings.iftttWebhookKey };
             await window.electronAPI.executeMacro(macroWithKey);
         } else {
-            await window.electronAPI.executeMacro(macro);
+            const result = await window.electronAPI.executeMacro(macro);
+            console.log('Macro execution result:', result);
+            if (result && !result.success) {
+                console.error('Macro execution failed:', result.error);
+            }
         }
     } catch (error) {
         console.error('Error executing macro:', error);
@@ -2775,6 +2787,7 @@ function playSoundClip(soundData) {
 let isRecording = false;
 let recordedKeys = [];
 let keyModifiers = { ctrl: false, alt: false, shift: false, meta: false };
+let lastRecordedKey = null; // Track the last recorded key to prevent duplicates
 
 function setupKeyboardRecorder() {
     const recordBtn = document.getElementById('record-shortcut-btn');
@@ -2804,6 +2817,7 @@ function setupKeyboardRecorder() {
     });
 
     // Set up the key recorded listener once (not inside startRecording)
+    let lastRecordedKey = null; // Track the last recorded key to prevent duplicates
     window.electronAPI.onKeyRecorded((event, keyData) => {
         if (!isRecording) return;
 
@@ -2818,38 +2832,31 @@ function setupKeyboardRecorder() {
             return;
         }
 
-        // Treat pure modifiers as state, not full shortcuts
-        if (['Control', 'Alt', 'Shift', 'Meta', 'Super'].includes(keyData.key)) {
-            keyModifiers.ctrl = keyData.ctrl;
-            keyModifiers.alt = keyData.alt;
-            keyModifiers.shift = keyData.shift;
-            keyModifiers.meta = keyData.meta;
-            updateRecordingDisplay();
-            return;
-        }
-
         // Record the key combination including modifiers
+        // The main process now only sends non-modifier keys, so we can record directly
         const keyCombo = {
             key: keyData.key,
-            ctrl: keyData.ctrl || keyModifiers.ctrl,
-            alt: keyData.alt || keyModifiers.alt,
-            shift: keyData.shift || keyModifiers.shift,
-            meta: keyData.meta || keyModifiers.meta,
+            ctrl: keyData.ctrl || false,
+            alt: keyData.alt || false,
+            shift: keyData.shift || false,
+            meta: keyData.meta || false,
             code: keyData.code
         };
 
-        // Only add if not already recorded
-        const exists = recordedKeys.some(k =>
-            k.key === keyCombo.key &&
-            k.ctrl === keyCombo.ctrl &&
-            k.alt === keyCombo.alt &&
-            k.shift === keyCombo.shift &&
-            k.meta === keyCombo.meta
-        );
+        // Clear any existing recorded keys - we only want the latest combination
+        // This prevents duplicates like "Left Shift + Left Win + S + Win + Shift + S"
+        recordedKeys = [];
+        
+        // Record this key combination
+        recordedKeys.push(keyCombo);
+        lastRecordedKey = keyCombo; // Remember this as the last recorded key
+        updateRecordingDisplay();
+    });
 
-        if (!exists) {
-            recordedKeys.push(keyCombo);
-            updateRecordingDisplay();
+    // Listen for auto-stop when all keys are released
+    window.electronAPI.onAutoStopRecording(() => {
+        if (isRecording) {
+            stopRecording(true); // Auto-save when all keys are released
         }
     });
 }
@@ -2858,6 +2865,7 @@ function startRecording() {
     isRecording = true;
     recordedKeys = [];
     keyModifiers = { ctrl: false, alt: false, shift: false, meta: false };
+    lastRecordedKey = null; // Reset last recorded key
 
     const overlay = document.getElementById('recording-overlay');
     const display = document.getElementById('recorded-keys-display');
@@ -3010,8 +3018,9 @@ function convertToSendKeys(keys) {
     let keyChar = k.key;
     if (keyChar === ' ') keyChar = ' ';
     else if (keyChar.length === 1) {
-        // Single character - use as is (SendKeys will handle case)
-        keyChar = keyChar;
+        // Single character - SendKeys needs uppercase for letters when used with modifiers
+        // But we'll let SendKeys handle it naturally
+        keyChar = keyChar.toUpperCase();
     } else {
         // Special key - convert to SendKeys format
         const keyMap = {

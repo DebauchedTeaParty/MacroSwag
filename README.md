@@ -129,6 +129,27 @@ This creates a distributable package in the `dist` folder.
 
 ## Troubleshooting
 
+### Windows Security / Antivirus Warnings
+
+**Why does Windows Defender flag this app?**
+
+MacroSwag uses global keyboard hooks to record keyboard shortcuts. This is necessary to capture the Windows key and other system-level shortcuts. Windows Defender may flag this behavior as potentially malicious because keyloggers use similar techniques.
+
+**This is safe because:**
+- The keyboard listener is **only active when you're recording a shortcut** (when the recording modal is open)
+- It's **completely disabled** when not recording
+- No keyboard data is stored or transmitted anywhere - it's only used to create your macros
+- The app is open source and you can review the code
+
+**To allow the app:**
+1. When Windows Defender shows a warning, click "More info"
+2. Click "Run anyway"
+3. Or add an exclusion in Windows Security settings:
+   - Open Windows Security
+   - Go to Virus & threat protection
+   - Click "Manage settings" under Virus & threat protection settings
+   - Scroll down to Exclusions and add the app folder
+
 ### Media Not Detected
 
 - Make sure your media player is actually playing (not just open)
