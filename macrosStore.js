@@ -7,6 +7,7 @@ const DEFAULT_DATA = {
     theme: 'default',
   },
   macros: [],
+  folderMacros: {},
 };
 
 function getStorePath() {
@@ -34,6 +35,7 @@ function loadStore() {
         data = {
           settings: parsed.settings || { ...DEFAULT_DATA.settings },
           macros: Array.isArray(parsed.macros) ? parsed.macros : [],
+          folderMacros: (parsed.folderMacros && typeof parsed.folderMacros === 'object') ? parsed.folderMacros : {},
         };
       } catch (e) {
         console.error('Failed to parse new macro file:', e);
@@ -52,6 +54,10 @@ function loadStore() {
           console.log('Migrating macros from old file location...');
           data.macros = oldMacros;
           data.settings = oldParsed.settings || data.settings;
+          // Preserve folderMacros if they exist in old file, otherwise use default
+          if (oldParsed.folderMacros && typeof oldParsed.folderMacros === 'object') {
+            data.folderMacros = oldParsed.folderMacros;
+          }
           // Save to new location
           saveStore(data);
           console.log(`Migrated ${oldMacros.length} macros successfully`);
@@ -78,6 +84,7 @@ function saveStore(data) {
     const toWrite = {
       settings: data.settings || { ...DEFAULT_DATA.settings },
       macros: Array.isArray(data.macros) ? data.macros : [],
+      folderMacros: (data.folderMacros && typeof data.folderMacros === 'object') ? data.folderMacros : {},
     };
     fs.writeFileSync(filePath, JSON.stringify(toWrite, null, 2), 'utf8');
     return true;

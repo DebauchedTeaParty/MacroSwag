@@ -120,10 +120,11 @@
             <div class="deck-column">
                 <div class="deck-header">
                     <div class="deck-title-group">
-                        <h2>MacroSwag</h2>
-                        <p>Create macros for apps, websites, shortcuts, and widgets.</p>
+                        <h2 id="deck-title">MacroSwag</h2>
+                        <p id="deck-subtitle">Create macros for apps, websites, shortcuts, and widgets.</p>
                     </div>
                     <div class="deck-actions">
+                        <button id="back-btn" class="pill-button" style="display: none;">← Back</button>
                         <button id="library-btn" class="pill-button">Library</button>
                         <button id="toggle-edit-mode" class="pill-button">Edit Mode</button>
                         <button id="add-macro-btn" class="pill-button primary">Add Macro</button>
@@ -267,6 +268,15 @@
                         <input type="number" id="num-pages-input" min="1" max="10" value="1" />
                         <div style="font-size: 10px; margin-top: 4px; color: var(--text-muted);">
                             Each page contains 30 macro slots (5 columns × 6 rows)
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label for="ifttt-webhook-key">IFTTT Webhook Key</label>
+                        <input type="password" id="ifttt-webhook-key" placeholder="Enter your IFTTT webhook key" />
+                        <div style="font-size: 10px; margin-top: 4px; color: var(--text-muted);">
+                            Get your key at <a href="#"
+                                onclick="window.electronAPI.openExternal('https://ifttt.com/maker_webhooks')"
+                                style="color: var(--text-primary); text-decoration: underline; cursor: pointer;">ifttt.com/maker_webhooks</a>
                         </div>
                     </div>
                 </div>
@@ -415,6 +425,291 @@
                 <div class="modal-footer">
                     <button type="button" id="crypto-config-cancel-btn" class="pill-button">Cancel</button>
                     <button type="button" id="crypto-config-add-btn" class="pill-button primary">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- IFTTT Config Modal -->
+        <div class="modal-backdrop" id="ifttt-config-modal-backdrop" style="display: none;">
+            <div class="modal medium">
+                <div class="modal-header">
+                    <h3>Configure IFTTT Webhook</h3>
+                    <button class="modal-close" id="ifttt-config-modal-close">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="ifttt-event">Event Name</label>
+                        <input type="text" id="ifttt-event" placeholder="e.g. button_pressed" />
+                        <div style="font-size: 10px; margin-top: 4px; color: var(--text-muted);">
+                            The event name you configured in your IFTTT applet
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label for="ifttt-value1">Value 1 (optional)</label>
+                        <input type="text" id="ifttt-value1" placeholder="Optional data to send" />
+                    </div>
+                    <div class="form-row">
+                        <label for="ifttt-value2">Value 2 (optional)</label>
+                        <input type="text" id="ifttt-value2" placeholder="Optional data to send" />
+                    </div>
+                    <div class="form-row">
+                        <label for="ifttt-value3">Value 3 (optional)</label>
+                        <input type="text" id="ifttt-value3" placeholder="Optional data to send" />
+                    </div>
+                    <div class="form-row">
+                        <label for="ifttt-size">Size</label>
+                        <select id="ifttt-size">
+                            <option value="1">1 Block (1x1)</option>
+                            <option value="2">2 Blocks (2x1)</option>
+                            <option value="3">3 Blocks (3x1)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="ifttt-config-cancel-btn" class="pill-button">Cancel</button>
+                    <button type="button" id="ifttt-config-add-btn" class="pill-button primary">Add to Deck</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stock Ticker Config Modal -->
+        <div class="modal-backdrop" id="stock-config-modal-backdrop" style="display: none;">
+            <div class="modal medium">
+                <div class="modal-header">
+                    <h3>Configure Stock Ticker</h3>
+                    <button class="modal-close" id="stock-config-modal-close">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="stock-api-key">Alpha Vantage API Key</label>
+                        <input type="password" id="stock-api-key" placeholder="Enter API Key" />
+                        <div style="font-size: 10px; margin-top: 4px; color: var(--text-muted);">
+                            Get your key at <a href="#"
+                                onclick="window.electronAPI.openExternal('https://www.alphavantage.co/')"
+                                style="color: var(--text-primary); text-decoration: underline; cursor: pointer;">alphavantage.co</a>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label for="stock-symbol">Stock Symbol</label>
+                        <input type="text" id="stock-symbol" placeholder="e.g. AAPL"
+                            style="text-transform: uppercase;" />
+                    </div>
+                    <div class="form-row">
+                        <label for="stock-size">Size</label>
+                        <select id="stock-size">
+                            <option value="1">1 Block (1x1)</option>
+                            <option value="2">2 Blocks (2x1)</option>
+                            <option value="3">3 Blocks (3x1)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="stock-config-cancel-btn" class="pill-button">Cancel</button>
+                    <button type="button" id="stock-config-add-btn" class="pill-button primary">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Weather Config Modal -->
+        <div class="modal-backdrop" id="weather-config-modal-backdrop" style="display: none;">
+            <div class="modal medium">
+                <div class="modal-header">
+                    <h3>Configure Weather</h3>
+                    <button class="modal-close" id="weather-config-modal-close">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="weather-city">City</label>
+                        <div style="position: relative;">
+                            <input type="text" id="weather-city" placeholder="Search for a city..." autocomplete="off" />
+                            <div id="weather-city-suggestions" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 4px; margin-top: 4px; max-height: 200px; overflow-y: auto; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                                <!-- Suggestions will be populated here -->
+                            </div>
+                        </div>
+                        <div style="font-size: 10px; margin-top: 4px; color: var(--text-muted);">
+                            Start typing to search for your city
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label for="weather-size">Size</label>
+                        <select id="weather-size">
+                            <option value="1">1 Block (1x1)</option>
+                            <option value="2">2 Blocks (2x1)</option>
+                            <option value="3">3 Blocks (3x1)</option>
+                        </select>
+                    </div>
+                    <div class="form-row" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+                        <div style="font-size: 10px; color: var(--text-muted); text-align: center;">
+                            Powered by <a href="#"
+                                onclick="window.electronAPI.openExternal('https://open-meteo.com/')"
+                                style="color: var(--text-primary); text-decoration: underline; cursor: pointer;">open-meteo.com</a>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="weather-config-cancel-btn" class="pill-button">Cancel</button>
+                    <button type="button" id="weather-config-add-btn" class="pill-button primary">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Disk Config Modal -->
+        <div class="modal-backdrop" id="disk-config-modal-backdrop" style="display: none;">
+            <div class="modal medium">
+                <div class="modal-header">
+                    <h3>Configure Disk Monitor</h3>
+                    <button class="modal-close" id="disk-config-modal-close">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="disk-select">Select Disk</label>
+                        <select id="disk-select">
+                            <option value="C:">C:</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label for="disk-size">Size</label>
+                        <select id="disk-size">
+                            <option value="1">1 Block (1x1)</option>
+                            <option value="2">2 Blocks (2x1)</option>
+                            <option value="3">3 Blocks (3x1)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="disk-config-cancel-btn" class="pill-button">Cancel</button>
+                    <button type="button" id="disk-config-add-btn" class="pill-button primary">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- GPU Config Modal -->
+        <div class="modal-backdrop" id="gpu-config-modal-backdrop" style="display: none;">
+            <div class="modal medium">
+                <div class="modal-header">
+                    <h3>Configure GPU Monitor</h3>
+                    <button class="modal-close" id="gpu-config-modal-close">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="gpu-select">Select GPU</label>
+                        <select id="gpu-select">
+                            <option value="0">GPU 0</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label for="gpu-size">Size</label>
+                        <select id="gpu-size">
+                            <option value="1">1 Block (1x1)</option>
+                            <option value="2">2 Blocks (2x1)</option>
+                            <option value="3">3 Blocks (3x1)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="gpu-config-cancel-btn" class="pill-button">Cancel</button>
+                    <button type="button" id="gpu-config-add-btn" class="pill-button primary">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Folder Config Modal -->
+        <div class="modal-backdrop" id="folder-config-modal-backdrop" style="display: none;">
+            <div class="modal medium">
+                <div class="modal-header">
+                    <h3>Configure Folder</h3>
+                    <button class="modal-close" id="folder-config-modal-close">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="folder-label">Label</label>
+                        <input type="text" id="folder-label" placeholder="e.g. Photoshop" maxlength="32" />
+                    </div>
+                    <div class="form-row">
+                        <label for="folder-background">Background Image (optional)</label>
+                        <input type="file" id="folder-background" accept="image/*" />
+                        <div id="folder-background-preview-container" style="display: none; margin-top: 12px;">
+                            <div class="icon-preview-box" style="width: 100%; height: 150px;">
+                                <img id="folder-background-preview" src="" alt="Preview" style="width: 100%; height: 100%; object-fit: cover;" />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label for="folder-size">Size</label>
+                        <select id="folder-size">
+                            <option value="1">1 Block (1x1)</option>
+                            <option value="2">2 Blocks (2x1)</option>
+                            <option value="3">3 Blocks (3x1)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="folder-config-cancel-btn" class="pill-button">Cancel</button>
+                    <button type="button" id="folder-config-add-btn" class="pill-button primary">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- TTS Settings Modal (for editing widget) -->
+        <div class="modal-backdrop" id="tts-settings-modal-backdrop" style="display: none;">
+            <div class="modal medium">
+                <div class="modal-header">
+                    <h3>Configure TTS Widget</h3>
+                    <button class="modal-close" id="tts-settings-modal-close">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="tts-size">Size</label>
+                        <select id="tts-size">
+                            <option value="1">1 Block (1x1)</option>
+                            <option value="2">2 Blocks (2x1)</option>
+                            <option value="3">3 Blocks (3x1)</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label for="tts-api-key">Deepgram API Key</label>
+                        <input type="password" id="tts-api-key" placeholder="Enter your Deepgram API key">
+                        <small style="color: var(--text-muted); margin-top: 4px;">
+                            <a href="https://console.deepgram.com/signup" target="_blank" style="color: var(--accent-color);">Get your API key here</a>
+                        </small>
+                    </div>
+                    <div class="form-row">
+                        <label for="tts-block-size">Block Size</label>
+                        <input type="number" id="tts-block-size" placeholder="1024" value="1024" min="256" max="8192" step="256">
+                        <small style="color: var(--text-muted); margin-top: 4px;">Audio block size for streaming (256-8192)</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="tts-settings-cancel-btn" class="pill-button">Cancel</button>
+                    <button type="button" id="tts-settings-add-btn" class="pill-button primary">Add to Deck</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- TTS Control Modal (for using widget) -->
+        <div class="modal-backdrop" id="tts-control-modal-backdrop" style="display: none;">
+            <div class="modal large">
+                <div class="modal-header">
+                    <h3>Text to Speech</h3>
+                    <button class="modal-close" id="tts-control-modal-close">×</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-row">
+                        <label for="tts-text-input">Text to Speak</label>
+                        <textarea id="tts-text-input" rows="6" placeholder="Enter text to convert to speech..." style="width: 100%; padding: 8px; border: 1px solid var(--border-color); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary); font-family: inherit; resize: vertical;"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <label for="tts-voice-select">Voice</label>
+                        <select id="tts-voice-select" class="form-select">
+                            <option value="">Loading voices...</option>
+                        </select>
+                    </div>
+                    <div class="form-row" style="display: flex; gap: 8px; justify-content: center; margin-top: 16px;">
+                        <button type="button" id="tts-play-btn" class="pill-button" style="flex: 1;">▶ Play</button>
+                        <button type="button" id="tts-pause-btn" class="pill-button" style="flex: 1;">⏸ Pause</button>
+                        <button type="button" id="tts-stop-btn" class="pill-button" style="flex: 1;">⏹ Stop</button>
+                    </div>
+                    <div id="tts-status" style="text-align: center; color: var(--text-muted); margin-top: 12px; font-size: 12px;"></div>
                 </div>
             </div>
         </div>

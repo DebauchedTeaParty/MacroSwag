@@ -7,40 +7,75 @@ let editMode = false;
 let activeMacroId = null;
 let currentPage = 0;
 const SLOTS_PER_PAGE = 30;
+let currentFolderId = null; // null = main view, otherwise shows folder macros
+let folderMacros = {}; // { folderId: [macros array] }
+let pendingFolderTarget = null; // Track folder ID when dropping widget onto folder
 
 // Helper function to check if a slot is truly available (not occupied and not covered by a multi-slot macro)
-function isSlotAvailable(slotIndex) {
+function isSlotAvailable(slotIndex, macrosArray = null) {
+    const targetMacros = macrosArray || macros;
     if (slotIndex < 0) return false;
     
     // Check if slot is occupied
-    if (macros[slotIndex]) return false;
+    if (targetMacros[slotIndex]) return false;
     
     // Check if slot is covered by a previous multi-slot macro
     // Check immediate left (slotIndex-1) for size >= 2
-    if (slotIndex > 0 && macros[slotIndex - 1] && (macros[slotIndex - 1].size || 1) >= 2) {
+    if (slotIndex > 0 && targetMacros[slotIndex - 1] && (targetMacros[slotIndex - 1].size || 1) >= 2) {
         return false;
     }
     // Check 2 slots left (slotIndex-2) for size >= 3
-    if (slotIndex >= 2 && macros[slotIndex - 2] && (macros[slotIndex - 2].size || 1) >= 3) {
+    if (slotIndex >= 2 && targetMacros[slotIndex - 2] && (targetMacros[slotIndex - 2].size || 1) >= 3) {
         return false;
     }
     
     return true;
 }
 
-// Helper function to find the first available slot
-function findFirstAvailableSlot(startIndex = 0) {
-    const numPages = settings.numPages || 1;
-    const totalSlots = SLOTS_PER_PAGE * numPages;
-    
-    // Ensure macros array is large enough
-    while (macros.length < totalSlots) {
-        macros.push(undefined);
+// Helper function to get the target macros array (folder or main)
+function getTargetMacros() {
+    // Check pending folder target first (from dropping widget onto folder)
+    if (pendingFolderTarget && !currentFolderId) {
+        if (!folderMacros[pendingFolderTarget]) {
+            folderMacros[pendingFolderTarget] = [];
+        }
+        return { macros: folderMacros[pendingFolderTarget], folderId: pendingFolderTarget };
     }
+    // Check current folder context
+    if (currentFolderId) {
+        if (!folderMacros[currentFolderId]) {
+            folderMacros[currentFolderId] = [];
+        }
+        return { macros: folderMacros[currentFolderId], folderId: currentFolderId };
+    }
+    // Default to main macros
+    return { macros: macros, folderId: null };
+}
+
+// Helper function to find the first available slot
+function findFirstAvailableSlot(startIndex = 0, macrosArray = null) {
+    const targetMacros = macrosArray || macros;
     
-    for (let i = startIndex; i < totalSlots; i++) {
-        if (isSlotAvailable(i)) {
-            return i;
+    if (currentFolderId) {
+        // For folders, search through existing slots
+        for (let i = startIndex; i < targetMacros.length + 100; i++) {
+            if (isSlotAvailable(i, targetMacros)) {
+                return i;
+            }
+        }
+    } else {
+        const numPages = settings.numPages || 1;
+        const totalSlots = SLOTS_PER_PAGE * numPages;
+        
+        // Ensure macros array is large enough
+        while (targetMacros.length < totalSlots) {
+            targetMacros.push(undefined);
+        }
+        
+        for (let i = startIndex; i < totalSlots; i++) {
+            if (isSlotAvailable(i, targetMacros)) {
+                return i;
+            }
         }
     }
     
@@ -219,6 +254,273 @@ function setupEventListeners() {
         });
     }
 
+    // IFTTT Config modal
+    const iftttConfigClose = document.getElementById('ifttt-config-modal-close');
+    const iftttConfigCancel = document.getElementById('ifttt-config-cancel-btn');
+    const iftttConfigAdd = document.getElementById('ifttt-config-add-btn');
+    const iftttConfigBackdrop = document.getElementById('ifttt-config-modal-backdrop');
+
+    if (iftttConfigClose) {
+        iftttConfigClose.addEventListener('click', closeIftttConfigModal);
+    }
+
+    if (iftttConfigCancel) {
+        iftttConfigCancel.addEventListener('click', closeIftttConfigModal);
+    }
+
+    if (iftttConfigAdd) {
+        iftttConfigAdd.addEventListener('click', saveIftttConfig);
+    }
+
+    if (iftttConfigBackdrop) {
+        iftttConfigBackdrop.addEventListener('click', (e) => {
+            if (e.target.id === 'ifttt-config-modal-backdrop') {
+                closeIftttConfigModal();
+            }
+        });
+    }
+
+    // Stock Config modal
+    const stockConfigClose = document.getElementById('stock-config-modal-close');
+    const stockConfigCancel = document.getElementById('stock-config-cancel-btn');
+    const stockConfigAdd = document.getElementById('stock-config-add-btn');
+    const stockConfigBackdrop = document.getElementById('stock-config-modal-backdrop');
+
+    if (stockConfigClose) {
+        stockConfigClose.addEventListener('click', closeStockConfigModal);
+    }
+
+    if (stockConfigCancel) {
+        stockConfigCancel.addEventListener('click', closeStockConfigModal);
+    }
+
+    if (stockConfigAdd) {
+        stockConfigAdd.addEventListener('click', saveStockConfig);
+    }
+
+    if (stockConfigBackdrop) {
+        stockConfigBackdrop.addEventListener('click', (e) => {
+            if (e.target.id === 'stock-config-modal-backdrop') {
+                closeStockConfigModal();
+            }
+        });
+    }
+
+    // Disk Config modal
+    const diskConfigClose = document.getElementById('disk-config-modal-close');
+    const diskConfigCancel = document.getElementById('disk-config-cancel-btn');
+    const diskConfigAdd = document.getElementById('disk-config-add-btn');
+    const diskConfigBackdrop = document.getElementById('disk-config-modal-backdrop');
+    const diskSelect = document.getElementById('disk-select');
+
+    if (diskConfigClose) {
+        diskConfigClose.addEventListener('click', closeDiskConfigModal);
+    }
+
+    if (diskConfigCancel) {
+        diskConfigCancel.addEventListener('click', closeDiskConfigModal);
+    }
+
+    if (diskConfigAdd) {
+        diskConfigAdd.addEventListener('click', saveDiskConfig);
+    }
+
+    if (diskConfigBackdrop) {
+        diskConfigBackdrop.addEventListener('click', (e) => {
+            if (e.target.id === 'disk-config-modal-backdrop') {
+                closeDiskConfigModal();
+            }
+        });
+    }
+
+    // GPU Config modal
+    const gpuConfigClose = document.getElementById('gpu-config-modal-close');
+    const gpuConfigCancel = document.getElementById('gpu-config-cancel-btn');
+    const gpuConfigAdd = document.getElementById('gpu-config-add-btn');
+    const gpuConfigBackdrop = document.getElementById('gpu-config-modal-backdrop');
+    const gpuSelect = document.getElementById('gpu-select');
+
+    if (gpuConfigClose) {
+        gpuConfigClose.addEventListener('click', closeGpuConfigModal);
+    }
+
+    if (gpuConfigCancel) {
+        gpuConfigCancel.addEventListener('click', closeGpuConfigModal);
+    }
+
+    if (gpuConfigAdd) {
+        gpuConfigAdd.addEventListener('click', saveGpuConfig);
+    }
+
+    if (gpuConfigBackdrop) {
+        gpuConfigBackdrop.addEventListener('click', (e) => {
+            if (e.target.id === 'gpu-config-modal-backdrop') {
+                closeGpuConfigModal();
+            }
+        });
+    }
+
+    // Folder Config modal
+    const folderConfigClose = document.getElementById('folder-config-modal-close');
+    const folderConfigCancel = document.getElementById('folder-config-cancel-btn');
+    const folderConfigAdd = document.getElementById('folder-config-add-btn');
+    const folderConfigBackdrop = document.getElementById('folder-config-modal-backdrop');
+    const folderBackgroundInput = document.getElementById('folder-background');
+
+    if (folderConfigClose) {
+        folderConfigClose.addEventListener('click', closeFolderConfigModal);
+    }
+
+    if (folderConfigCancel) {
+        folderConfigCancel.addEventListener('click', closeFolderConfigModal);
+    }
+
+    if (folderConfigAdd) {
+        folderConfigAdd.addEventListener('click', saveFolderConfig);
+    }
+
+    if (folderConfigBackdrop) {
+        folderConfigBackdrop.addEventListener('click', (e) => {
+            if (e.target.id === 'folder-config-modal-backdrop') {
+                closeFolderConfigModal();
+            }
+        });
+    }
+
+    // TTS Settings modal (for editing widget)
+    const ttsSettingsClose = document.getElementById('tts-settings-modal-close');
+    const ttsSettingsCancel = document.getElementById('tts-settings-cancel-btn');
+    const ttsSettingsAdd = document.getElementById('tts-settings-add-btn');
+    const ttsSettingsBackdrop = document.getElementById('tts-settings-modal-backdrop');
+
+    if (ttsSettingsClose) {
+        ttsSettingsClose.addEventListener('click', closeTtsSettingsModal);
+    }
+
+    if (ttsSettingsCancel) {
+        ttsSettingsCancel.addEventListener('click', closeTtsSettingsModal);
+    }
+
+    if (ttsSettingsAdd) {
+        ttsSettingsAdd.addEventListener('click', saveTtsSettings);
+    }
+
+    if (ttsSettingsBackdrop) {
+        ttsSettingsBackdrop.addEventListener('click', (e) => {
+            if (e.target.id === 'tts-settings-modal-backdrop') {
+                closeTtsSettingsModal();
+            }
+        });
+    }
+
+    // TTS Control modal (for using widget)
+    const ttsControlClose = document.getElementById('tts-control-modal-close');
+    const ttsControlBackdrop = document.getElementById('tts-control-modal-backdrop');
+    const ttsPlayBtn = document.getElementById('tts-play-btn');
+    const ttsPauseBtn = document.getElementById('tts-pause-btn');
+    const ttsStopBtn = document.getElementById('tts-stop-btn');
+
+    if (ttsControlClose) {
+        ttsControlClose.addEventListener('click', closeTtsControlModal);
+    }
+
+    if (ttsPlayBtn) {
+        ttsPlayBtn.addEventListener('click', playTts);
+    }
+
+    if (ttsPauseBtn) {
+        ttsPauseBtn.addEventListener('click', pauseTts);
+    }
+
+    if (ttsStopBtn) {
+        ttsStopBtn.addEventListener('click', stopTts);
+    }
+
+    if (ttsControlBackdrop) {
+        ttsControlBackdrop.addEventListener('click', (e) => {
+            if (e.target.id === 'tts-control-modal-backdrop') {
+                closeTtsControlModal();
+            }
+        });
+    }
+
+    // Folder background image preview
+    if (folderBackgroundInput) {
+        folderBackgroundInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                readFileAsDataURL(file).then(dataUrl => {
+                    const preview = document.getElementById('folder-background-preview');
+                    const container = document.getElementById('folder-background-preview-container');
+                    if (preview && container) {
+                        preview.src = dataUrl;
+                        container.style.display = 'block';
+                    }
+                });
+            }
+        });
+    }
+
+    // Weather Config modal
+    const weatherConfigClose = document.getElementById('weather-config-modal-close');
+    const weatherConfigCancel = document.getElementById('weather-config-cancel-btn');
+    const weatherConfigAdd = document.getElementById('weather-config-add-btn');
+    const weatherConfigBackdrop = document.getElementById('weather-config-modal-backdrop');
+    const weatherCityInput = document.getElementById('weather-city');
+    const weatherCitySuggestions = document.getElementById('weather-city-suggestions');
+
+    if (weatherConfigClose) {
+        weatherConfigClose.addEventListener('click', closeWeatherConfigModal);
+    }
+
+    if (weatherConfigCancel) {
+        weatherConfigCancel.addEventListener('click', closeWeatherConfigModal);
+    }
+
+    if (weatherConfigAdd) {
+        weatherConfigAdd.addEventListener('click', saveWeatherConfig);
+    }
+
+    if (weatherConfigBackdrop) {
+        weatherConfigBackdrop.addEventListener('click', (e) => {
+            if (e.target.id === 'weather-config-modal-backdrop') {
+                closeWeatherConfigModal();
+            }
+        });
+    }
+
+    // City search autocomplete
+    if (weatherCityInput && weatherCitySuggestions) {
+        let searchTimeout = null;
+        weatherCityInput.addEventListener('input', (e) => {
+            const query = e.target.value.trim();
+            
+            clearTimeout(searchTimeout);
+            
+            if (query.length < 2) {
+                weatherCitySuggestions.style.display = 'none';
+                return;
+            }
+
+            searchTimeout = setTimeout(async () => {
+                try {
+                    const results = await window.electronAPI.searchCity(query);
+                    displayCitySuggestions(results);
+                } catch (error) {
+                    console.error('Error searching cities:', error);
+                    weatherCitySuggestions.style.display = 'none';
+                }
+            }, 300); // Debounce 300ms
+        });
+
+        // Hide suggestions when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!weatherCityInput.contains(e.target) && !weatherCitySuggestions.contains(e.target)) {
+                weatherCitySuggestions.style.display = 'none';
+            }
+        });
+    }
+
     // Macro modal
     document.getElementById('macro-modal-close').addEventListener('click', closeMacroModal);
     document.getElementById('cancel-macro-btn').addEventListener('click', closeMacroModal);
@@ -264,24 +566,63 @@ function setupEventListeners() {
     // Keyboard shortcut recording
     setupKeyboardRecorder();
 
+    // Back button
+    const backBtn = document.getElementById('back-btn');
+    if (backBtn) {
+        backBtn.addEventListener('click', () => {
+            exitFolderView();
+        });
+    }
+
     // Pagination controls
     const pagePrevBtn = document.getElementById('page-prev-btn');
     const pageNextBtn = document.getElementById('page-next-btn');
     if (pagePrevBtn) {
         pagePrevBtn.addEventListener('click', () => {
-            if (currentPage > 0) {
-                currentPage--;
-                renderDeckGrid();
+            if (currentFolderId) {
+                // In folder view, navigate folder pages
+                const folderMacrosList = folderMacros[currentFolderId] || [];
+                const folderPages = Math.max(1, Math.ceil(folderMacrosList.length / SLOTS_PER_PAGE));
+                if (currentPage > 0) {
+                    currentPage--;
+                    renderDeckGrid();
+                }
+            } else {
+                // Main view pagination
+                if (currentPage > 0) {
+                    currentPage--;
+                    renderDeckGrid();
+                }
             }
         });
     }
     if (pageNextBtn) {
         pageNextBtn.addEventListener('click', () => {
-            const numPages = settings.numPages || 1;
-            if (currentPage < numPages - 1) {
-                currentPage++;
-                renderDeckGrid();
+            if (currentFolderId) {
+                // In folder view, navigate folder pages
+                const folderMacrosList = folderMacros[currentFolderId] || [];
+                const folderPages = Math.max(1, Math.ceil(folderMacrosList.length / SLOTS_PER_PAGE));
+                if (currentPage < folderPages - 1) {
+                    currentPage++;
+                    renderDeckGrid();
+                }
+            } else {
+                // Main view pagination
+                const numPages = settings.numPages || 1;
+                if (currentPage < numPages - 1) {
+                    currentPage++;
+                    renderDeckGrid();
+                }
             }
+        });
+    }
+
+    // IFTTT webhook key input
+    const iftttWebhookKeyInput = document.getElementById('ifttt-webhook-key');
+    if (iftttWebhookKeyInput) {
+        iftttWebhookKeyInput.addEventListener('change', (e) => {
+            settings.iftttWebhookKey = e.target.value.trim();
+            saveMacrosAndSettings();
         });
     }
 
@@ -340,6 +681,13 @@ async function loadMacrosAndSettings() {
         
         settings = data.settings || { theme: 'default', numPages: 1 };
         const loadedMacros = Array.isArray(data.macros) ? data.macros : [];
+        
+        // Load folder macros if available
+        if (data.folderMacros && typeof data.folderMacros === 'object') {
+            folderMacros = data.folderMacros;
+        } else {
+            folderMacros = {};
+        }
 
         console.log('Loaded macros array length:', loadedMacros.length);
         console.log('Loaded macros (first 10):', loadedMacros.slice(0, 10));
@@ -401,10 +749,14 @@ async function loadMacrosAndSettings() {
         console.log(`Macros in current page range (${currentPage * SLOTS_PER_PAGE}-${(currentPage + 1) * SLOTS_PER_PAGE - 1}):`, 
             macros.slice(currentPage * SLOTS_PER_PAGE, (currentPage + 1) * SLOTS_PER_PAGE).filter(m => m).map(m => ({ id: m.id, label: m.label })));
 
-        // Update settings modal with current numPages value (use settings.numPages in case it was auto-expanded)
+        // Update settings modal with current values
         const numPagesInput = document.getElementById('num-pages-input');
         if (numPagesInput) {
             numPagesInput.value = settings.numPages || 1;
+        }
+        const iftttWebhookKeyInput = document.getElementById('ifttt-webhook-key');
+        if (iftttWebhookKeyInput) {
+            iftttWebhookKeyInput.value = settings.iftttWebhookKey || '';
         }
 
         applyTheme(settings.theme || 'default', false);
@@ -441,6 +793,7 @@ function saveMacrosAndSettings() {
     window.electronAPI.saveMacrosAndSettings({
         settings,
         macros: slotBasedMacros,
+        folderMacros: folderMacros
     }).catch((e) => console.error('Error saving macros/settings:', e));
 }
 
@@ -468,6 +821,10 @@ function openSettingsModal() {
     const numPagesInput = document.getElementById('num-pages-input');
     if (numPagesInput) {
         numPagesInput.value = settings.numPages || 1;
+    }
+    const iftttWebhookKeyInput = document.getElementById('ifttt-webhook-key');
+    if (iftttWebhookKeyInput) {
+        iftttWebhookKeyInput.value = settings.iftttWebhookKey || '';
     }
     document.getElementById('settings-modal-backdrop').style.display = 'flex';
 }
@@ -497,12 +854,38 @@ function renderDeckGrid() {
     }
     grid.innerHTML = '';
 
-    const numPages = settings.numPages || 1;
+    // Update header based on view mode
+    const deckTitle = document.getElementById('deck-title');
+    const deckSubtitle = document.getElementById('deck-subtitle');
+    const backBtn = document.getElementById('back-btn');
+    
+    let macrosToRender = macros;
+    let numPages = settings.numPages || 1;
+    
+    if (currentFolderId) {
+        // Folder view
+        const folder = macros.find(m => m && m.type === 'library' && m.config?.widgetType === 'folder' && m.config?.folderId === currentFolderId);
+        if (deckTitle) deckTitle.textContent = folder?.label || 'Folder';
+        if (deckSubtitle) deckSubtitle.textContent = 'Organize your macros';
+        if (backBtn) backBtn.style.display = 'inline-flex';
+        
+        // Use folder macros
+        if (!folderMacros[currentFolderId]) {
+            folderMacros[currentFolderId] = [];
+        }
+        macrosToRender = folderMacros[currentFolderId];
+        numPages = Math.max(1, Math.ceil(macrosToRender.length / SLOTS_PER_PAGE));
+    } else {
+        // Main view
+        if (deckTitle) deckTitle.textContent = 'MacroSwag';
+        if (deckSubtitle) deckSubtitle.textContent = 'Create macros for apps, websites, shortcuts, and widgets.';
+        if (backBtn) backBtn.style.display = 'none';
+    }
+
     const startIndex = currentPage * SLOTS_PER_PAGE;
     const endIndex = startIndex + SLOTS_PER_PAGE;
 
-    console.log(`Rendering page ${currentPage + 1}/${numPages}, slots ${startIndex}-${endIndex - 1}`);
-    console.log(`Macros array length: ${macros.length}, macros in range:`, macros.slice(startIndex, endIndex).filter(m => m).length);
+    console.log(`Rendering ${currentFolderId ? 'folder' : 'main'} view, page ${currentPage + 1}/${numPages}, slots ${startIndex}-${endIndex - 1}`);
 
     // Update pagination controls
     updatePaginationControls();
@@ -517,14 +900,14 @@ function renderDeckGrid() {
             // Check previous slots to see if any extend into this one
             let covered = false;
             // Check immediate left (i-1) for size >= 2
-            if (i > 0 && macros[i - 1] && (macros[i - 1].size || 1) >= 2) covered = true;
+            if (i > 0 && macrosToRender[i - 1] && (macrosToRender[i - 1].size || 1) >= 2) covered = true;
             // Check 2 slots left (i-2) for size >= 3
-            if (i >= 2 && macros[i - 2] && (macros[i - 2].size || 1) >= 3) covered = true;
+            if (i >= 2 && macrosToRender[i - 2] && (macrosToRender[i - 2].size || 1) >= 3) covered = true;
 
             if (covered) continue;
         }
 
-        const macro = macros[i];
+        const macro = macrosToRender[i];
         const key = document.createElement('div');
         key.classList.add('deck-key');
 
@@ -548,16 +931,35 @@ function renderDeckGrid() {
                 key.dataset.widgetType = macro.config?.widgetType || 'cpu';
                 key.dataset.macroId = macro.id;
 
+                // Set background image for folder widgets
+                if (macro.config?.widgetType === 'folder' && macro.config?.backgroundImage) {
+                    key.style.backgroundImage = `url(${macro.config.backgroundImage})`;
+                    key.style.backgroundSize = 'cover';
+                    key.style.backgroundPosition = 'center';
+                    key.style.backgroundRepeat = 'no-repeat';
+                }
+
                 const widgetContent = document.createElement('div');
                 widgetContent.classList.add('widget-content');
 
                 const widgetIcon = document.createElement('div');
                 widgetIcon.classList.add('widget-icon');
+                widgetIcon.id = `widget-icon-${macro.id}`;
                 widgetIcon.textContent = getWidgetIcon(macro.config?.widgetType || 'cpu');
 
                 const widgetLabel = document.createElement('div');
                 widgetLabel.classList.add('widget-label');
-                widgetLabel.textContent = macro.label || getWidgetLabel(macro.config?.widgetType || 'cpu');
+                // For weather widgets, show city name if available (without country)
+                if (macro.config?.widgetType === 'weather' && macro.config?.cityName) {
+                    // Only show city name, remove country if present
+                    const cityName = macro.config.cityName.split(',')[0].trim();
+                    widgetLabel.textContent = cityName;
+                } else if (macro.config?.widgetType === 'disk' && macro.config?.diskLetter) {
+                    // For disk widgets, show disk letter
+                    widgetLabel.textContent = `Disk ${macro.config.diskLetter}`;
+                } else {
+                    widgetLabel.textContent = macro.label || getWidgetLabel(macro.config?.widgetType || 'cpu');
+                }
 
                 const widgetValue = document.createElement('div');
                 widgetValue.classList.add('widget-value');
@@ -579,6 +981,127 @@ function renderDeckGrid() {
                         key.style.backgroundPosition = 'center';
                         key.style.backgroundRepeat = 'no-repeat';
                     }
+                }
+
+                // Special styling for weather widget to reduce size and spacing
+                if (macro.config?.widgetType === 'weather') {
+                    const effectiveSize = Math.min(macro.size || 1, 3);
+                    const isSingleBlock = effectiveSize === 1;
+                    
+                    // Reduce font size for temperature
+                    widgetValue.style.fontSize = isSingleBlock ? '12px' : effectiveSize === 2 ? '16px' : '20px';
+                    widgetValue.style.lineHeight = '1';
+                    widgetValue.style.marginTop = '0';
+                    widgetValue.style.marginBottom = '0';
+                    widgetValue.style.padding = '0';
+                    
+                    // Reduce label size
+                    widgetLabel.style.fontSize = isSingleBlock ? '8px' : '9px';
+                    widgetLabel.style.marginBottom = '0';
+                    widgetLabel.style.marginTop = '0';
+                    
+                    // Reduce icon size
+                    widgetIcon.style.fontSize = isSingleBlock ? '18px' : '20px';
+                    widgetIcon.style.marginBottom = '0';
+                    widgetIcon.style.marginTop = '0';
+                    
+                    // Reduce gap between elements
+                    widgetContent.style.gap = isSingleBlock ? '1px' : '2px';
+                }
+
+                // Special handling for Stopwatch - add buttons
+                if (macro.config?.widgetType === 'stopwatch') {
+                    // Initialize stopwatch state if not exists
+                    if (!macro.stopwatchState) {
+                        macro.stopwatchState = {
+                            elapsed: 0, // elapsed time in milliseconds
+                            isRunning: false,
+                            startTime: null,
+                            lastElapsed: 0
+                        };
+                    }
+
+                    // Get effective size for responsive styling
+                    const effectiveSize = Math.min(macro.size || 1, 3);
+                    const isSingleBlock = effectiveSize === 1;
+
+                    // Adjust widget value font size based on block size
+                    widgetValue.style.fontSize = isSingleBlock ? '14px' : effectiveSize === 2 ? '18px' : '22px';
+                    widgetValue.style.fontWeight = '700';
+                    widgetValue.style.lineHeight = '1';
+                    widgetValue.style.marginBottom = '0';
+                    widgetValue.style.marginTop = '0';
+                    widgetValue.style.padding = '0';
+
+                    // Make label smaller for stopwatch
+                    widgetLabel.style.fontSize = isSingleBlock ? '8px' : '9px';
+                    widgetLabel.style.marginBottom = '0';
+                    widgetLabel.style.marginTop = '0';
+
+                    // Make icon smaller for stopwatch
+                    widgetIcon.style.fontSize = isSingleBlock ? '18px' : '20px';
+                    widgetIcon.style.marginBottom = '0';
+                    widgetIcon.style.marginTop = '0';
+
+                    // Reduce widget-content gap for stopwatch
+                    widgetContent.style.gap = isSingleBlock ? '1px' : '2px';
+
+                    const stopwatchControls = document.createElement('div');
+                    stopwatchControls.classList.add('stopwatch-controls');
+                    stopwatchControls.style.display = 'flex';
+                    stopwatchControls.style.gap = isSingleBlock ? '4px' : '6px';
+                    stopwatchControls.style.marginTop = isSingleBlock ? '2px' : '3px';
+                    stopwatchControls.style.marginBottom = '0';
+                    stopwatchControls.style.justifyContent = 'center';
+                    stopwatchControls.style.flexWrap = 'wrap';
+                    stopwatchControls.style.width = '100%';
+
+                    const startPauseBtn = document.createElement('button');
+                    startPauseBtn.classList.add('stopwatch-btn');
+                    startPauseBtn.id = `stopwatch-start-pause-${macro.id}`;
+                    startPauseBtn.textContent = macro.stopwatchState.isRunning ? 'Pause' : 'Start';
+                    startPauseBtn.style.padding = isSingleBlock ? '3px 8px' : '4px 10px';
+                    startPauseBtn.style.fontSize = isSingleBlock ? '9px' : '10px';
+                    startPauseBtn.style.border = '1px solid var(--border-color)';
+                    startPauseBtn.style.borderRadius = '4px';
+                    startPauseBtn.style.background = 'var(--bg-secondary)';
+                    startPauseBtn.style.color = 'var(--text-primary)';
+                    startPauseBtn.style.cursor = 'pointer';
+                    startPauseBtn.style.whiteSpace = 'nowrap';
+                    startPauseBtn.style.flex = isSingleBlock ? '1' : '0 1 auto';
+                    startPauseBtn.style.minWidth = '0';
+
+                    const resetBtn = document.createElement('button');
+                    resetBtn.classList.add('stopwatch-btn');
+                    resetBtn.id = `stopwatch-reset-${macro.id}`;
+                    resetBtn.textContent = 'Reset';
+                    resetBtn.style.padding = isSingleBlock ? '3px 8px' : '4px 10px';
+                    resetBtn.style.fontSize = isSingleBlock ? '9px' : '10px';
+                    resetBtn.style.border = '1px solid var(--border-color)';
+                    resetBtn.style.borderRadius = '4px';
+                    resetBtn.style.background = 'var(--bg-secondary)';
+                    resetBtn.style.color = 'var(--text-primary)';
+                    resetBtn.style.cursor = 'pointer';
+                    resetBtn.style.whiteSpace = 'nowrap';
+                    resetBtn.style.flex = isSingleBlock ? '1' : '0 1 auto';
+                    resetBtn.style.minWidth = '0';
+
+                    stopwatchControls.appendChild(startPauseBtn);
+                    stopwatchControls.appendChild(resetBtn);
+
+                    // Store references for later appending
+                    widgetContent._stopwatchControls = stopwatchControls;
+
+                    // Add click handlers
+                    startPauseBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        toggleStopwatch(macro);
+                    });
+
+                    resetBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        resetStopwatch(macro);
+                    });
                 }
 
                 // Special handling for Pomodoro timer - add buttons and phase display
@@ -698,6 +1221,12 @@ function renderDeckGrid() {
                 widgetContent.appendChild(widgetLabel);
                 widgetContent.appendChild(widgetValue);
                 
+                // Then append stopwatch-specific elements if this is a stopwatch widget
+                if (macro.config?.widgetType === 'stopwatch' && widgetContent._stopwatchControls) {
+                    widgetContent.appendChild(widgetContent._stopwatchControls);
+                    delete widgetContent._stopwatchControls;
+                }
+                
                 // Then append pomodoro-specific elements if this is a pomodoro widget
                 if (macro.config?.widgetType === 'pomodoro' && widgetContent._pomodoroPhase && widgetContent._pomodoroControls) {
                     widgetContent.appendChild(widgetContent._pomodoroPhase);
@@ -731,14 +1260,41 @@ function renderDeckGrid() {
                 key.appendChild(type);
             }
 
-            // Drag and drop for reordering in edit mode
+            // Drag and drop - always allow library widget drops, even when not in edit mode
+            key.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // If dragging from the library, show copy cursor, otherwise move
+                if (e.dataTransfer.types.includes('application/json')) {
+                    e.dataTransfer.dropEffect = 'copy';
+                    key.classList.add('drag-over');
+                } else if (editMode) {
+                    e.dataTransfer.dropEffect = 'move';
+                    key.classList.add('drag-over');
+                }
+                return false;
+            });
+
+            key.addEventListener('dragleave', (e) => {
+                key.classList.remove('drag-over');
+            });
+            
+            // Drag and drop for reordering in edit mode (works in both main view and folder view)
             if (editMode) {
                 key.draggable = true;
-                key.dataset.macroIndex = i; // Use absolute index, not page-relative
+                // Use absolute index for main macros, or relative index for folder macros
+                const absoluteIndex = i;
+                key.dataset.macroIndex = absoluteIndex;
 
                 key.addEventListener('dragstart', (e) => {
                     e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', i.toString());
+                    // Store both the index and whether we're in a folder
+                    const dragData = {
+                        index: absoluteIndex,
+                        folderId: currentFolderId,
+                        macroId: macro.id
+                    };
+                    e.dataTransfer.setData('text/plain', JSON.stringify(dragData));
                     key.classList.add('dragging');
                 });
 
@@ -749,174 +1305,154 @@ function renderDeckGrid() {
                         k.classList.remove('drag-over');
                     });
                 });
+            }
+            
+            // Drop handler - works for both edit mode (macro moves) and library widget drops
+            key.addEventListener('drop', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                key.classList.remove('drag-over');
 
-                key.addEventListener('dragover', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    // If dragging from the library, show copy cursor, otherwise move
-                    if (e.dataTransfer.types.includes('application/json')) {
-                        e.dataTransfer.dropEffect = 'copy';
-                    } else {
-                        e.dataTransfer.dropEffect = 'move';
-                    }
-                    key.classList.add('drag-over');
-                    return false;
-                });
-
-                key.addEventListener('dragleave', (e) => {
-                    key.classList.remove('drag-over');
-                });
-
-                key.addEventListener('drop', (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    key.classList.remove('drag-over');
-
-                    // Check for existing macro move first (text/plain data takes priority)
+                // Special handling: if dropping onto a folder widget (and not in folder view), move macro into folder
+                if (!currentFolderId && macro && macro.type === 'library' && macro.config?.widgetType === 'folder') {
                     const sourceIndexStr = e.dataTransfer.getData('text/plain');
                     if (sourceIndexStr) {
-                        // This is an existing macro being moved - handle the swap
-                        const sourceIndex = parseInt(sourceIndexStr);
-                        const targetIndex = i;
-
-                        console.log('Drop event:', { sourceIndex, targetIndex, macrosLength: macros.length });
-
-                        if (isNaN(sourceIndex) || isNaN(targetIndex)) {
-                            console.error('Invalid indices:', { sourceIndex, targetIndex });
-                            return false;
-                        }
-
-                        if (sourceIndex === targetIndex) {
-                            console.log('Same index, no move needed');
-                            return false;
-                        }
-
-                        if (sourceIndex < 0 || sourceIndex >= macros.length) {
-                            console.error('Source index out of bounds:', sourceIndex);
-                            return false;
-                        }
-
-                        // Get the macro to move
-                        const macroToMove = macros[sourceIndex];
-                        if (!macroToMove) {
-                            console.error('No macro at source index:', sourceIndex);
-                            return false;
-                        }
-
-                        // Ensure macros array has enough slots (pad with undefined if needed)
-                        const numPages = settings.numPages || 1;
-                        const totalSlots = SLOTS_PER_PAGE * numPages;
-                        while (macros.length < totalSlots) {
-                            macros.push(undefined);
-                        }
-
-                        // If target slot is occupied, move the existing widget to the next available slot
-                        const existingAtTarget = macros[targetIndex];
-                        if (existingAtTarget) {
-                            // Find next available slot for the existing widget (starting after target)
-                            const nextAvailableSlot = findFirstAvailableSlot(targetIndex + 1);
-                            if (nextAvailableSlot !== -1) {
-                                macros[nextAvailableSlot] = existingAtTarget;
-                                console.log(`Moved existing widget from slot ${targetIndex} to slot ${nextAvailableSlot}`);
+                        let sourceIndex;
+                        let sourceFolderId = null;
+                        let macroToMove;
+                        
+                        // Try to parse as JSON (new format) or integer (old format)
+                        try {
+                            const dragData = JSON.parse(sourceIndexStr);
+                            sourceIndex = dragData.index;
+                            sourceFolderId = dragData.folderId;
+                            // Get macro from the correct location
+                            if (sourceFolderId) {
+                                macroToMove = folderMacros[sourceFolderId]?.[sourceIndex];
                             } else {
-                                // No available slot found, do a swap instead
-                                macros[sourceIndex] = existingAtTarget;
-                                console.log('No available slot found, swapping instead');
+                                macroToMove = macros[sourceIndex];
+                            }
+                        } catch (err) {
+                            // Old format - just integer (assume from main macros)
+                            sourceIndex = parseInt(sourceIndexStr);
+                            if (!isNaN(sourceIndex) && sourceIndex >= 0) {
+                                macroToMove = macros[sourceIndex];
                             }
                         }
                         
-                        // Always clear the source slot and place the dragged macro at the target
-                        macros[sourceIndex] = undefined;
-                        macros[targetIndex] = macroToMove;
-
-                        console.log('Macros after reorder:', macros.map((m, idx) => ({ idx, id: m?.id, label: m?.label })));
-
-                        // Save and re-render
-                        saveMacrosAndSettings();
-                        renderDeckGrid();
-
-                        return false;
-                    }
-
-                    // Only check for library widget if no existing macro is being moved
-                    const libraryData = e.dataTransfer.getData('application/json');
-                    if (libraryData) {
-                        try {
-                            const data = JSON.parse(libraryData);
-                            if (data.type === 'library' && data.widgetType) {
-                                // If target slot is occupied, move the existing widget to the next available slot
-                                const existingAtTarget = macros[i];
-                                if (existingAtTarget) {
-                                    const nextAvailableSlot = findFirstAvailableSlot(i + 1);
-                                    if (nextAvailableSlot !== -1) {
-                                        macros[nextAvailableSlot] = existingAtTarget;
-                                        console.log(`Moved existing widget from slot ${i} to slot ${nextAvailableSlot}`);
-                                    } else {
-                                        alert('Deck is full! Cannot move existing widget. Remove a macro first or add more pages in settings.');
-                                        return false;
-                                    }
+                        if (macroToMove) {
+                            const folderId = macro.config.folderId;
+                            if (!folderMacros[folderId]) {
+                                folderMacros[folderId] = [];
+                            }
+                            
+                            // Find first available slot in folder
+                            const folderSlot = findFirstAvailableSlot(0, folderMacros[folderId]);
+                            if (folderSlot !== -1) {
+                                // Move macro to folder
+                                folderMacros[folderId][folderSlot] = macroToMove;
+                                // Remove from source location
+                                if (sourceFolderId) {
+                                    folderMacros[sourceFolderId][sourceIndex] = undefined;
+                                } else {
+                                    macros[sourceIndex] = undefined;
                                 }
                                 
-                                // Add the new library widget to the target slot
-                                const id = 'macro-' + Date.now();
-                                macros[i] = {
-                                    id,
-                                    label: getWidgetLabel(data.widgetType),
-                                    type: 'library',
-                                    config: {
-                                        widgetType: data.widgetType
-                                    },
-                                    iconData: null
-                                };
                                 saveMacrosAndSettings();
                                 renderDeckGrid();
                                 return false;
+                            } else {
+                                alert('Folder is full! Remove a macro from the folder first.');
+                                return false;
                             }
-                        } catch (err) {
-                            console.error('Error parsing library drag data (occupied slot):', err);
                         }
                     }
+                }
 
-                    return false;
-
-                    const sourceIndex = parseInt(sourceIndexStr);
+                // Check for existing macro move first (text/plain data takes priority)
+                const sourceIndexStr = e.dataTransfer.getData('text/plain');
+                if (sourceIndexStr) {
+                    // This is an existing macro being moved - handle the swap
+                    let sourceIndex;
+                    let sourceFolderId = null;
+                    let macroToMove;
+                    
+                    // Try to parse as JSON (new format) or integer (old format)
+                    try {
+                        const dragData = JSON.parse(sourceIndexStr);
+                        sourceIndex = dragData.index;
+                        sourceFolderId = dragData.folderId;
+                    } catch (err) {
+                        // Old format - just integer
+                        sourceIndex = parseInt(sourceIndexStr);
+                    }
+                    
                     const targetIndex = i;
+                    
+                    // Get the correct macros arrays
+                    const sourceMacros = sourceFolderId ? folderMacros[sourceFolderId] : macros;
+                    const targetMacros = currentFolderId ? folderMacros[currentFolderId] : macros;
+                    
+                    // Ensure target macros array exists
+                    if (currentFolderId && !folderMacros[currentFolderId]) {
+                        folderMacros[currentFolderId] = [];
+                    }
+                    if (sourceFolderId && !folderMacros[sourceFolderId]) {
+                        folderMacros[sourceFolderId] = [];
+                    }
 
-                    console.log('Drop event:', { sourceIndex, targetIndex, macrosLength: macros.length });
+                    console.log('Drop event:', { sourceIndex, targetIndex, sourceFolderId, currentFolderId, macrosLength: targetMacros.length });
 
                     if (isNaN(sourceIndex) || isNaN(targetIndex)) {
                         console.error('Invalid indices:', { sourceIndex, targetIndex });
                         return false;
                     }
 
-                    if (sourceIndex === targetIndex) {
-                        console.log('Same index, no move needed');
-                        return false;
-                    }
-
-                    if (sourceIndex < 0 || sourceIndex >= macros.length) {
-                        console.error('Source index out of bounds:', sourceIndex);
-                        return false;
-                    }
-
-                    // Get the macro to move
-                    const macroToMove = macros[sourceIndex];
+                    // Get the macro to move from the correct source
+                    macroToMove = sourceMacros?.[sourceIndex];
                     if (!macroToMove) {
-                        console.error('No macro at source index:', sourceIndex);
+                        console.error('No macro at source index:', sourceIndex, 'in', sourceFolderId ? 'folder' : 'main');
+                        return false;
+                    }
+                    
+                    // If moving within the same array and same index, no move needed
+                    if (sourceMacros === targetMacros && sourceIndex === targetIndex) {
+                        console.log('Same index in same array, no move needed');
                         return false;
                     }
 
                     // Ensure macros array has enough slots (pad with undefined if needed)
-                    const numPages = settings.numPages || 1;
-                    const totalSlots = SLOTS_PER_PAGE * numPages;
-                    while (macros.length < totalSlots) {
-                        macros.push(undefined);
+                    if (currentFolderId) {
+                        // For folders, just ensure we have enough slots
+                        while (targetMacros.length <= targetIndex) {
+                            targetMacros.push(undefined);
+                        }
+                    } else {
+                        const numPages = settings.numPages || 1;
+                        const totalSlots = SLOTS_PER_PAGE * numPages;
+                        while (targetMacros.length < totalSlots) {
+                            targetMacros.push(undefined);
+                        }
                     }
 
-                    // Swap: exchange macros between source and target slots
-                    const existingAtTarget = macros[targetIndex];
-                    macros[sourceIndex] = existingAtTarget; // Put target's macro (or undefined) at source
-                    macros[targetIndex] = macroToMove; // Put source macro at target
+                    // If target slot is occupied, move the existing widget to the next available slot
+                    const existingAtTarget = targetMacros[targetIndex];
+                    if (existingAtTarget) {
+                        // Find next available slot for the existing widget (starting after target)
+                        const nextAvailableSlot = findFirstAvailableSlot(targetIndex + 1, targetMacros);
+                        if (nextAvailableSlot !== -1) {
+                            targetMacros[nextAvailableSlot] = existingAtTarget;
+                            console.log(`Moved existing widget from slot ${targetIndex} to slot ${nextAvailableSlot}`);
+                        } else {
+                            // No available slot found, do a swap instead
+                            targetMacros[sourceIndex] = existingAtTarget;
+                            console.log('No available slot found, swapping instead');
+                        }
+                    }
+                    
+                    // Always clear the source slot and place the dragged macro at the target
+                    targetMacros[sourceIndex] = undefined;
+                    targetMacros[targetIndex] = macroToMove;
 
                     console.log('Macros after reorder:', macros.map((m, idx) => ({ idx, id: m?.id, label: m?.label })));
 
@@ -925,8 +1461,96 @@ function renderDeckGrid() {
                     renderDeckGrid();
 
                     return false;
-                });
-            }
+                }
+
+                // Only check for library widget if no existing macro is being moved
+                const libraryData = e.dataTransfer.getData('application/json');
+                if (libraryData) {
+                    try {
+                        const data = JSON.parse(libraryData);
+                        if (data.type === 'library' && data.widgetType) {
+                            // Always use current folder context if we're in a folder
+                            // This ensures widgets added from library go to the current folder
+                            const targetFolderId = currentFolderId;
+                            
+                            // Determine target macros and slot
+                            const targetMacros = targetFolderId ? folderMacros[targetFolderId] : macros;
+                            if (targetFolderId && !folderMacros[targetFolderId]) {
+                                folderMacros[targetFolderId] = [];
+                            }
+                            
+                            // Set pending folder target for config modals
+                            if (targetFolderId) {
+                                pendingFolderTarget = targetFolderId;
+                            }
+                            
+                            // If target slot is occupied, move the existing widget to the next available slot
+                            const existingAtTarget = targetMacros[i];
+                            if (existingAtTarget) {
+                                const nextAvailableSlot = findFirstAvailableSlot(i + 1, targetMacros);
+                                if (nextAvailableSlot !== -1) {
+                                    targetMacros[nextAvailableSlot] = existingAtTarget;
+                                    console.log(`Moved existing widget from slot ${i} to slot ${nextAvailableSlot}`);
+                                } else {
+                                    alert('Deck is full! Cannot move existing widget. Remove a macro first or add more pages in settings.');
+                                    pendingFolderTarget = null;
+                                    return false;
+                                }
+                            }
+                            
+                            // For RSS, Crypto, IFTTT, Stocks, Weather, Disk, GPU - open config modal
+                            if (data.widgetType === 'rss') {
+                                openRssConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'crypto') {
+                                openCryptoConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'ifttt') {
+                                openIftttConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'stocks') {
+                                openStockConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'weather') {
+                                openWeatherConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'disk') {
+                                openDiskConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'gpu') {
+                                openGpuConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'folder') {
+                                openFolderConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'tts') {
+                                openTtsSettingsModal();
+                                return false;
+                            }
+                            
+                            // For simple widgets (CPU, Memory, etc.), add directly
+                            const id = 'macro-' + Date.now();
+                            targetMacros[i] = {
+                                id,
+                                label: getWidgetLabel(data.widgetType),
+                                type: 'library',
+                                config: {
+                                    widgetType: data.widgetType
+                                },
+                                iconData: null
+                            };
+                            pendingFolderTarget = null; // Clear after use
+                            saveMacrosAndSettings();
+                            renderDeckGrid();
+                            return false;
+                        }
+                    } catch (err) {
+                        console.error('Error parsing library drag data (occupied slot):', err);
+                    }
+                }
+
+                return false;
+            });
 
             key.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -939,9 +1563,22 @@ function renderDeckGrid() {
                     console.log('Opening macro modal from click, macro:', macro);
                     editMacro(macro);
                 } else {
-                    // Widgets don't execute, they just display
+                    // Check if this is a folder widget
+                    if (macro.type === 'library' && macro.config?.widgetType === 'folder') {
+                        // Open folder view
+                        enterFolderView(macro.config.folderId);
+                        return;
+                    }
+                    
+                    // Widgets don't execute, they just display (except IFTTT and TTS)
                     if (macro.type !== 'library') {
                         executeMacro(macro);
+                    } else if (macro.config && macro.config.widgetType === 'ifttt') {
+                        // IFTTT widgets execute when clicked
+                        executeMacro(macro);
+                    } else if (macro.config && macro.config.widgetType === 'tts') {
+                        // TTS widget opens control modal when clicked
+                        openTtsControlModal(macro);
                     } else if (macro.config && macro.config.widgetType === 'rss') {
                         console.log('RSS widget clicked, checking for link...');
                         if (macro.rssItems && macro.rssItems[macro.rssCurrentIndex]) {
@@ -961,7 +1598,9 @@ function renderDeckGrid() {
                 e.stopPropagation();
                 showMacroContextMenu(e, macro);
             });
-        } else {
+        }
+        
+        if (!macro) {
             key.classList.add('empty');
             const span = document.createElement('span');
             span.textContent = editMode ? 'Add macro' : '';
@@ -990,7 +1629,8 @@ function renderDeckGrid() {
             key.addEventListener('dragleave', (e) => {
                 key.classList.remove('drag-over');
             });
-
+            
+            // Drop handler - works for both edit mode (macro moves) and library widget drops
             key.addEventListener('drop', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1002,41 +1642,74 @@ function renderDeckGrid() {
                     // Regular macro move to empty slot (only in edit mode)
                     if (!editMode) return false;
 
-                    const sourceIndex = parseInt(sourceIndexStr);
+                    let sourceIndex;
+                    let sourceFolderId = null;
+                    let macroToMove;
+                    
+                    // Try to parse as JSON (new format) or integer (old format)
+                    try {
+                        const dragData = JSON.parse(sourceIndexStr);
+                        sourceIndex = dragData.index;
+                        sourceFolderId = dragData.folderId;
+                    } catch (err) {
+                        // Old format - just integer
+                        sourceIndex = parseInt(sourceIndexStr);
+                    }
+                    
                     const targetIndex = i;
 
-                    console.log('Drop to empty slot:', { sourceIndex, targetIndex, macrosLength: macros.length });
+                    console.log('Drop to empty slot:', { sourceIndex, targetIndex, sourceFolderId, currentFolderId });
 
                     if (isNaN(sourceIndex) || isNaN(targetIndex)) {
                         console.error('Invalid indices:', { sourceIndex, targetIndex });
                         return false;
                     }
 
-                    const numPages = settings.numPages || 1;
-                    const totalSlots = SLOTS_PER_PAGE * numPages;
-                    if (sourceIndex < 0 || sourceIndex >= totalSlots || targetIndex < 0 || targetIndex >= totalSlots) {
-                        console.error('Index out of bounds:', { sourceIndex, targetIndex, totalSlots });
-                        return false;
+                    // Get the correct macros array (folder or main)
+                    const sourceMacros = sourceFolderId ? folderMacros[sourceFolderId] : macros;
+                    const targetMacros = currentFolderId ? folderMacros[currentFolderId] : macros;
+                    
+                    // Ensure target macros array exists
+                    if (currentFolderId && !folderMacros[currentFolderId]) {
+                        folderMacros[currentFolderId] = [];
+                    }
+                    if (sourceFolderId && !folderMacros[sourceFolderId]) {
+                        folderMacros[sourceFolderId] = [];
                     }
 
                     // Get the macro to move
-                    const macroToMove = macros[sourceIndex];
+                    macroToMove = sourceMacros?.[sourceIndex];
                     if (!macroToMove) {
-                        console.error('No macro at source index:', sourceIndex);
+                        console.error('No macro at source index:', sourceIndex, 'in', sourceFolderId ? 'folder' : 'main');
                         return false;
                     }
 
-                    // Ensure macros array has enough slots (pad with undefined if needed)
-                    // numPages and totalSlots already declared above
-                    while (macros.length < totalSlots) {
-                        macros.push(undefined);
+                    // Ensure target macros array has enough slots
+                    const numPages = settings.numPages || 1;
+                    const totalSlots = SLOTS_PER_PAGE * numPages;
+                    while (targetMacros.length < totalSlots) {
+                        targetMacros.push(undefined);
+                    }
+                    if (sourceMacros && sourceMacros !== targetMacros) {
+                        while (sourceMacros.length < totalSlots) {
+                            sourceMacros.push(undefined);
+                        }
                     }
 
                     // Direct slot assignment: move macro from source to target
-                    macros[sourceIndex] = undefined; // Clear source slot
-                    macros[targetIndex] = macroToMove; // Set target slot
+                    if (sourceMacros && sourceMacros !== targetMacros) {
+                        // Moving between folders or folder to main
+                        sourceMacros[sourceIndex] = undefined; // Clear source slot
+                    } else {
+                        // Moving within same array
+                        sourceMacros[sourceIndex] = undefined; // Clear source slot
+                    }
+                    targetMacros[targetIndex] = macroToMove; // Set target slot
 
-                    console.log('Macros after move to empty:', macros.map((m, idx) => ({ idx, id: m?.id, label: m?.label })));
+                    console.log('Macros after move to empty:', { 
+                        source: sourceMacros?.map((m, idx) => ({ idx, id: m?.id, label: m?.label, widgetType: m?.config?.widgetType })),
+                        target: targetMacros?.map((m, idx) => ({ idx, id: m?.id, label: m?.label, widgetType: m?.config?.widgetType }))
+                    });
 
                     // Save and re-render
                     saveMacrosAndSettings();
@@ -1051,18 +1724,76 @@ function renderDeckGrid() {
                     try {
                         const data = JSON.parse(libraryData);
                         if (data.type === 'library' && data.widgetType) {
-                            // For RSS and Crypto, open config modal instead of adding directly
+                            // Always use current folder context if we're in a folder
+                            // This ensures widgets added from library go to the current folder
+                            const targetFolderId = currentFolderId;
+                            
+                            // Check if we're dropping onto a folder widget (from main page)
+                            if (!targetFolderId && macro && macro.type === 'library' && macro.config?.widgetType === 'folder') {
+                                // Set pending folder target so config modals know where to add
+                                pendingFolderTarget = macro.config.folderId;
+                                if (!folderMacros[pendingFolderTarget]) {
+                                    folderMacros[pendingFolderTarget] = [];
+                                }
+                            } else if (targetFolderId) {
+                                // We're in a folder, so set pending folder target for config modals
+                                pendingFolderTarget = targetFolderId;
+                            }
+                            
+                            // Determine target macros and slot - use current folder if in folder view
+                            const targetMacros = targetFolderId ? folderMacros[targetFolderId] : macros;
+                            if (targetFolderId && !folderMacros[targetFolderId]) {
+                                folderMacros[targetFolderId] = [];
+                            }
+                            
+                            // If dropping onto an existing macro, replace it
+                            let targetSlot = i;
+                            if (macro) {
+                                // Replace existing macro at this slot
+                                targetSlot = i;
+                            } else {
+                                // Find first available slot
+                                targetSlot = findFirstAvailableSlot(0, targetMacros);
+                                if (targetSlot === -1) {
+                                    alert('Deck is full! Remove a macro first or add more pages in settings.');
+                                    pendingFolderTarget = null;
+                                    return false;
+                                }
+                            }
+                            
+                            // For RSS, Crypto, IFTTT, Stocks, Weather, Disk, GPU - open config modal
                             if (data.widgetType === 'rss') {
                                 openRssConfigModal();
                                 return false;
                             } else if (data.widgetType === 'crypto') {
                                 openCryptoConfigModal();
                                 return false;
+                            } else if (data.widgetType === 'ifttt') {
+                                openIftttConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'stocks') {
+                                openStockConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'weather') {
+                                openWeatherConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'disk') {
+                                openDiskConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'gpu') {
+                                openGpuConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'folder') {
+                                openFolderConfigModal();
+                                return false;
+                            } else if (data.widgetType === 'tts') {
+                                openTtsSettingsModal();
+                                return false;
                             }
                             
-                            // Add widget to this empty slot for other widget types
+                            // For simple widgets (CPU, Memory, etc.), add directly
                             const id = 'macro-' + Date.now();
-                            macros[i] = {
+                            targetMacros[targetSlot] = {
                                 id,
                                 label: getWidgetLabel(data.widgetType),
                                 type: 'library',
@@ -1071,6 +1802,7 @@ function renderDeckGrid() {
                                 },
                                 iconData: null
                             };
+                            pendingFolderTarget = null; // Clear after use
                             saveMacrosAndSettings();
                             renderDeckGrid();
                             return false;
@@ -1079,48 +1811,6 @@ function renderDeckGrid() {
                         console.error('Error parsing library drag data:', err);
                     }
                 }
-
-                return false;
-
-                const sourceIndex = parseInt(sourceIndexStr);
-                const targetIndex = i;
-
-                console.log('Drop to empty slot:', { sourceIndex, targetIndex, macrosLength: macros.length });
-
-                if (isNaN(sourceIndex) || isNaN(targetIndex)) {
-                    console.error('Invalid indices:', { sourceIndex, targetIndex });
-                    return false;
-                }
-
-                const numPages = settings.numPages || 1;
-                const totalSlots = SLOTS_PER_PAGE * numPages;
-                if (sourceIndex < 0 || sourceIndex >= totalSlots || targetIndex < 0 || targetIndex >= totalSlots) {
-                    console.error('Index out of bounds:', { sourceIndex, targetIndex, totalSlots });
-                    return false;
-                }
-
-                // Get the macro to move
-                const macroToMove = macros[sourceIndex];
-                if (!macroToMove) {
-                    console.error('No macro at source index:', sourceIndex);
-                    return false;
-                }
-
-                // Ensure macros array has enough slots (pad with undefined if needed)
-                // numPages and totalSlots already declared above
-                while (macros.length < totalSlots) {
-                    macros.push(undefined);
-                }
-
-                // Direct slot assignment: move macro from source to target
-                macros[sourceIndex] = undefined; // Clear source slot
-                macros[targetIndex] = macroToMove; // Set target slot
-
-                console.log('Macros after move to empty:', macros.map((m, idx) => ({ idx, id: m?.id, label: m?.label })));
-
-                // Save and re-render
-                saveMacrosAndSettings();
-                renderDeckGrid();
 
                 return false;
             });
@@ -1163,7 +1853,14 @@ function renderDeckGrid() {
 }
 
 function updatePaginationControls() {
-    const numPages = settings.numPages || 1;
+    let numPages = settings.numPages || 1;
+    
+    if (currentFolderId) {
+        // Folder view pagination
+        const folderMacrosList = folderMacros[currentFolderId] || [];
+        numPages = Math.max(1, Math.ceil(folderMacrosList.length / SLOTS_PER_PAGE));
+    }
+    
     const prevBtn = document.getElementById('page-prev-btn');
     const nextBtn = document.getElementById('page-next-btn');
     const indicator = document.getElementById('page-indicator');
@@ -1209,7 +1906,7 @@ function openMacroModal(macro) {
     const cryptoSymbolInput = document.getElementById('macro-crypto-symbol');
     const iconInput = document.getElementById('macro-icon');
 
-    if (!labelInput || !typeSelect || !keysInput || !urlInput || !appPathInput || !appArgsInput || !cryptoApiKeyInput || !cryptoSymbolInput || !iconInput) {
+    if (!labelInput || !typeSelect || !keysInput || !urlInput || !appPathInput || !appArgsInput || !iconInput) {
         console.error('One or more macro modal form elements are missing');
         return;
     }
@@ -1252,8 +1949,8 @@ function openMacroModal(macro) {
     appArgsInput.value = macro?.config?.args || '';
 
     // Crypto config
-    cryptoApiKeyInput.value = macro?.config?.apiKey || '';
-    cryptoSymbolInput.value = macro?.config?.symbol || '';
+    if (cryptoApiKeyInput) cryptoApiKeyInput.value = macro?.config?.apiKey || '';
+    if (cryptoSymbolInput) cryptoSymbolInput.value = macro?.config?.symbol || '';
 
     iconInput.value = '';
 
@@ -1420,48 +2117,105 @@ async function saveMacroFromModal() {
             const iconInput = document.getElementById('macro-icon');
             if (iconInput.files && iconInput.files[0]) {
                 iconData = await readFileAsDataURL(iconInput.files[0]);
+            } else {
+                // If no icon uploaded, try to get default icon based on type
+                if (type === 'website' && config.url) {
+                    try {
+                        const faviconResult = await window.electronAPI.fetchFavicon(config.url);
+                        if (faviconResult.success) {
+                            iconData = faviconResult.dataUrl;
+                        }
+                    } catch (error) {
+                        console.error('Error fetching favicon:', error);
+                    }
+                } else if (type === 'app' && config.path) {
+                    try {
+                        const iconResult = await window.electronAPI.extractAppIcon(config.path);
+                        if (iconResult.success) {
+                            iconData = iconResult.dataUrl;
+                        }
+                    } catch (error) {
+                        console.error('Error extracting app icon:', error);
+                    }
+                }
             }
+        }
+    }
+
+    // Check if we have a pending folder target (from dropping widget onto folder)
+    let finalTargetMacros = macros;
+    let finalFolderId = currentFolderId;
+    
+    if (pendingFolderTarget && !currentFolderId) {
+        // Adding to a folder from main page
+        finalFolderId = pendingFolderTarget;
+        if (!folderMacros[pendingFolderTarget]) {
+            folderMacros[pendingFolderTarget] = [];
+        }
+        finalTargetMacros = folderMacros[pendingFolderTarget];
+    } else {
+        // Use current folder or main macros
+        finalTargetMacros = currentFolderId ? folderMacros[currentFolderId] : macros;
+        if (currentFolderId && !folderMacros[currentFolderId]) {
+            folderMacros[currentFolderId] = [];
+            finalTargetMacros = folderMacros[currentFolderId];
         }
     }
 
     if (activeMacroId) {
         // Find macro by ID (could be at any slot index)
-        const idx = macros.findIndex((m) => m && m.id === activeMacroId);
+        const idx = finalTargetMacros.findIndex((m) => m && m.id === activeMacroId);
         if (idx >= 0) {
-            macros[idx] = {
-                ...macros[idx],
+            finalTargetMacros[idx] = {
+                ...finalTargetMacros[idx],
                 label,
                 type,
                 size,
                 config,
                 // Only update iconData for non-library widgets
-                iconData: type !== 'library' ? (iconData || macros[idx].iconData) : macros[idx].iconData,
+                // If no icon provided and no existing icon, try to get default
+                iconData: type !== 'library' ? (iconData || finalTargetMacros[idx].iconData || await getDefaultIcon(type, config)) : finalTargetMacros[idx].iconData,
             };
         }
     } else {
-        // Find first available slot across all pages
-        const targetSlot = findFirstAvailableSlot(0);
+        // Find first available slot
+        const targetSlot = findFirstAvailableSlot(0, finalTargetMacros);
 
         if (targetSlot === -1) {
             alert('Deck is full! Remove a macro first or add more pages in settings.');
+            pendingFolderTarget = null; // Clear pending target
             return;
         }
 
         // Switch to the page where the macro is being added
-        const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
-        if (targetPage !== currentPage) {
-            currentPage = targetPage;
+        if (!finalFolderId) {
+            const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
+            if (targetPage !== currentPage) {
+                currentPage = targetPage;
+            }
+        } else {
+            // For folders, ensure we're on the right page
+            const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
+            if (targetPage !== currentPage) {
+                currentPage = targetPage;
+            }
         }
 
         const id = 'macro-' + Date.now();
-        macros[targetSlot] = {
+        // If no icon provided, try to get default icon
+        const finalIconData = iconData || await getDefaultIcon(type, config);
+        
+        finalTargetMacros[targetSlot] = {
             id,
             label,
             type,
             size,
             config,
-            iconData,
+            iconData: finalIconData,
         };
+        
+        // Clear pending folder target after use
+        pendingFolderTarget = null;
     }
 
     console.log('Macros before save:', macros.length);
@@ -1473,7 +2227,16 @@ async function saveMacroFromModal() {
 
 function deleteActiveMacro() {
     if (!activeMacroId) return;
-    macros = macros.filter((m) => m.id !== activeMacroId);
+    
+    // Determine which macros array to use (folder or main)
+    const { macros: targetMacros } = getTargetMacros();
+    
+    // Find and remove the macro
+    const idx = targetMacros.findIndex((m) => m && m.id === activeMacroId);
+    if (idx >= 0) {
+        targetMacros[idx] = undefined;
+    }
+    
     saveMacrosAndSettings();
     renderDeckGrid();
     closeMacroModal();
@@ -1571,10 +2334,13 @@ function setupContextMenu() {
             hideContextMenu();
             // Small delay to ensure menu is hidden before deleting
             setTimeout(() => {
+                // Determine which macros array to use (folder or main)
+                const { macros: targetMacros } = getTargetMacros();
+                
                 // Find macro by ID and clear its slot (don't use splice, maintain slot positions)
-                const idx = macros.findIndex((m) => m && m.id === macroId);
+                const idx = targetMacros.findIndex((m) => m && m.id === macroId);
                 if (idx >= 0) {
-                    macros[idx] = undefined; // Clear the slot, maintain position
+                    targetMacros[idx] = undefined; // Clear the slot, maintain position
                     saveMacrosAndSettings();
                     renderDeckGrid();
                 }
@@ -1585,7 +2351,17 @@ function setupContextMenu() {
 
 async function executeMacro(macro) {
     try {
-        await window.electronAPI.executeMacro(macro);
+        // For IFTTT macros (library widgets), pass the webhook key from settings
+        if (macro.type === 'library' && macro.config && macro.config.widgetType === 'ifttt') {
+            const macroWithKey = { ...macro, webhookKey: settings.iftttWebhookKey };
+            await window.electronAPI.executeMacro(macroWithKey);
+        } else if (macro.type === 'ifttt') {
+            // Legacy support for old IFTTT macros (shouldn't happen now)
+            const macroWithKey = { ...macro, webhookKey: settings.iftttWebhookKey };
+            await window.electronAPI.executeMacro(macroWithKey);
+        } else {
+            await window.electronAPI.executeMacro(macro);
+        }
     } catch (error) {
         console.error('Error executing macro:', error);
     }
@@ -1598,6 +2374,30 @@ function readFileAsDataURL(file) {
         reader.onerror = reject;
         reader.readAsDataURL(file);
     });
+}
+
+// Get default icon based on macro type
+async function getDefaultIcon(type, config) {
+    if (type === 'website' && config && config.url) {
+        try {
+            const result = await window.electronAPI.fetchFavicon(config.url);
+            if (result.success) {
+                return result.dataUrl;
+            }
+        } catch (error) {
+            console.error('Error fetching favicon:', error);
+        }
+    } else if (type === 'app' && config && config.path) {
+        try {
+            const result = await window.electronAPI.extractAppIcon(config.path);
+            if (result.success) {
+                return result.dataUrl;
+            }
+        } catch (error) {
+            console.error('Error extracting app icon:', error);
+        }
+    }
+    return null;
 }
 
 // Icon cropping functionality
@@ -2335,7 +3135,14 @@ function getWidgetIcon(widgetType) {
         clock: '🕐',
         rss: '📰',
         crypto: '💰',
-        pomodoro: '🍅'
+        pomodoro: '🍅',
+        ifttt: '🔗',
+        stocks: '📈',
+        weather: '🌤️',
+        gpu: '🎮',
+        folder: '📁',
+        tts: '🔊',
+        stopwatch: '⏱️'
     };
     return icons[widgetType] || '📊';
 }
@@ -2349,9 +3156,42 @@ function getWidgetLabel(widgetType) {
         clock: 'Clock',
         rss: 'RSS Feed',
         crypto: 'Cryptoticker',
-        pomodoro: 'Pomodoro Timer'
+        pomodoro: 'Pomodoro Timer',
+        ifttt: 'IFTTT',
+        stocks: 'Stock Ticker',
+        weather: 'Weather',
+        gpu: 'GPU',
+        folder: 'Folder',
+        tts: 'Text to Speech',
+        stopwatch: 'Stopwatch'
     };
     return labels[widgetType] || 'Widget';
+}
+
+// Get weather icon based on weather code (WMO codes)
+function getWeatherIcon(weatherCode) {
+    // WMO Weather interpretation codes (WW)
+    // Clear sky: 0, 1
+    // Partly cloudy: 2
+    // Cloudy: 3
+    // Fog: 45, 48
+    // Drizzle: 51-57
+    // Rain: 61-67, 80-82
+    // Snow: 71-77, 85-86
+    // Thunderstorm: 95-99
+    
+    if (weatherCode === 0 || weatherCode === 1) return '☀️'; // Clear sky
+    if (weatherCode === 2) return '🌤️'; // Partly cloudy
+    if (weatherCode === 3) return '☁️'; // Cloudy
+    if (weatherCode === 45 || weatherCode === 48) return '🌫️'; // Fog
+    if (weatherCode >= 51 && weatherCode <= 57) return '🌦️'; // Drizzle
+    if (weatherCode >= 61 && weatherCode <= 67) return '🌧️'; // Rain
+    if (weatherCode >= 71 && weatherCode <= 77) return '🌨️'; // Snow
+    if (weatherCode >= 80 && weatherCode <= 82) return '🌧️'; // Rain showers
+    if (weatherCode >= 85 && weatherCode <= 86) return '🌨️'; // Snow showers
+    if (weatherCode >= 95 && weatherCode <= 99) return '⛈️'; // Thunderstorm
+    
+    return '🌤️'; // Default
 }
 
 function formatBytes(bytes) {
@@ -2367,8 +3207,17 @@ function formatSpeed(bytesPerSecond) {
 }
 
 function updateWidgets() {
-    // Filter out undefined/null macros and only process library widgets
-    macros.filter(m => m && m.type === 'library').forEach(macro => {
+    // Get all macros to update (main macros + current folder macros if in folder view)
+    let allMacrosToUpdate = macros.filter(m => m && m.type === 'library');
+    
+    // If in folder view, also include folder macros
+    if (currentFolderId && folderMacros[currentFolderId]) {
+        const folderWidgets = folderMacros[currentFolderId].filter(m => m && m.type === 'library');
+        allMacrosToUpdate = allMacrosToUpdate.concat(folderWidgets);
+    }
+    
+    // Update all widgets
+    allMacrosToUpdate.forEach(macro => {
         const widgetValueEl = document.getElementById(`widget-value-${macro.id}`);
         if (!widgetValueEl) {
             // Element not found - might be because DOM was just re-rendered
@@ -2395,8 +3244,19 @@ function updateWidgets() {
                 }
                 break;
             case 'disk':
-                if (systemStats) {
-                    displayValue = `${Math.round(systemStats.disk.percentage)}%`;
+                if (systemStats && systemStats.disk) {
+                    // Show free/available space percentage instead of used
+                    const freePercentage = systemStats.disk.total > 0 
+                        ? ((systemStats.disk.free / systemStats.disk.total) * 100) 
+                        : 0;
+                    displayValue = `${Math.round(freePercentage)}%`;
+                } else {
+                    displayValue = '...';
+                }
+                break;
+            case 'gpu':
+                if (systemStats && systemStats.gpu) {
+                    displayValue = `${Math.round(systemStats.gpu.usage)}%`;
                 } else {
                     displayValue = '...';
                 }
@@ -2410,13 +3270,14 @@ function updateWidgets() {
                     displayValue = '...';
                 }
                 break;
-            case 'clock':
+            case 'clock': {
                 const now = new Date();
                 const hours = String(now.getHours()).padStart(2, '0');
                 const minutes = String(now.getMinutes()).padStart(2, '0');
                 const seconds = String(now.getSeconds()).padStart(2, '0');
                 displayValue = `${hours}:${minutes}:${seconds}`;
                 break;
+            }
             case 'rss':
                 // RSS feeds are handled separately with cycling
                 if (macro.rssItems && macro.rssItems.length > 0) {
@@ -2441,6 +3302,38 @@ function updateWidgets() {
                     const arrow = change >= 0 ? '↑' : '↓';
                     displayValue = `${macro.config.symbol || ''} ${formattedPrice} ${arrow}${Math.abs(change).toFixed(1)}%`;
                 } else if (macro.cryptoError) {
+                    displayValue = 'Error';
+                } else {
+                    displayValue = 'Loading...';
+                }
+                break;
+            case 'stocks':
+                if (macro.stockData) {
+                    const price = macro.stockData.price;
+                    const change = macro.stockData.change;
+                    const changePercent = macro.stockData.changePercent;
+                    // Format price
+                    const formattedPrice = '$' + price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+                    const arrow = change >= 0 ? '↑' : '↓';
+                    displayValue = `${macro.config.symbol || ''} ${formattedPrice} ${arrow}${Math.abs(changePercent).toFixed(2)}%`;
+                } else if (macro.stockError) {
+                    displayValue = 'Error';
+                } else {
+                    displayValue = 'Loading...';
+                }
+                break;
+            case 'weather':
+                if (macro.weatherData) {
+                    const temp = macro.weatherData.temperature;
+                    const weatherCode = macro.weatherData.weatherCode;
+                    // Update icon based on weather
+                    const widgetIconEl = document.getElementById(`widget-icon-${macro.id}`);
+                    if (widgetIconEl) {
+                        widgetIconEl.textContent = getWeatherIcon(weatherCode);
+                    }
+                    displayValue = `${Math.round(temp)}°`;
+                } else if (macro.weatherError) {
                     displayValue = 'Error';
                 } else {
                     displayValue = 'Loading...';
@@ -2505,6 +3398,43 @@ function updateWidgets() {
                     startPauseBtn.textContent = state.isRunning ? 'Pause' : 'Start';
                 }
                 break;
+            case 'stopwatch': {
+                if (!macro.stopwatchState) {
+                    macro.stopwatchState = {
+                        elapsed: 0,
+                        isRunning: false,
+                        startTime: null,
+                        lastElapsed: 0
+                    };
+                }
+                const stopwatchState = macro.stopwatchState;
+                
+                if (stopwatchState.isRunning && stopwatchState.startTime) {
+                    // Calculate elapsed time
+                    const now = Date.now();
+                    stopwatchState.elapsed = stopwatchState.lastElapsed + (now - stopwatchState.startTime);
+                }
+                
+                // Format time as HH:MM:SS.mmm
+                const totalMs = stopwatchState.elapsed;
+                const hours = Math.floor(totalMs / 3600000);
+                const minutes = Math.floor((totalMs % 3600000) / 60000);
+                const seconds = Math.floor((totalMs % 60000) / 1000);
+                const milliseconds = Math.floor((totalMs % 1000) / 10); // Show centiseconds
+                
+                if (hours > 0) {
+                    displayValue = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(milliseconds).padStart(2, '0')}`;
+                } else {
+                    displayValue = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(milliseconds).padStart(2, '0')}`;
+                }
+                
+                // Update button text
+                const stopwatchStartPauseBtn = document.getElementById(`stopwatch-start-pause-${macro.id}`);
+                if (stopwatchStartPauseBtn) {
+                    stopwatchStartPauseBtn.textContent = stopwatchState.isRunning ? 'Pause' : 'Start';
+                }
+                break;
+            }
             default:
                 displayValue = '...';
         }
@@ -2516,12 +3446,69 @@ function updateWidgets() {
 async function fetchSystemStats() {
     try {
         if (window.electronAPI && window.electronAPI.getSystemStats) {
-            systemStats = await window.electronAPI.getSystemStats();
+            // Get disk and GPU configs from widgets
+            const diskWidget = macros.find(m => m && m.type === 'library' && m.config?.widgetType === 'disk');
+            const gpuWidget = macros.find(m => m && m.type === 'library' && m.config?.widgetType === 'gpu');
+            
+            const diskLetter = diskWidget?.config?.diskLetter || 'C:';
+            const gpuIndex = gpuWidget?.config?.gpuIndex || 0;
+            
+            systemStats = await window.electronAPI.getSystemStats({ diskLetter, gpuIndex });
             updateWidgets();
         }
     } catch (error) {
         console.error('Error fetching system stats:', error);
     }
+}
+
+// Stopwatch Functions
+function toggleStopwatch(macro) {
+    if (!macro.stopwatchState) {
+        macro.stopwatchState = {
+            elapsed: 0,
+            isRunning: false,
+            startTime: null,
+            lastElapsed: 0
+        };
+    }
+
+    const state = macro.stopwatchState;
+
+    if (state.isRunning) {
+        // Pause: save current elapsed time
+        const now = Date.now();
+        state.elapsed = state.lastElapsed + (now - state.startTime);
+        state.lastElapsed = state.elapsed;
+        state.isRunning = false;
+        state.startTime = null;
+    } else {
+        // Start: record start time
+        state.isRunning = true;
+        state.startTime = Date.now();
+    }
+
+    saveMacrosAndSettings();
+    updateWidgets();
+}
+
+function resetStopwatch(macro) {
+    if (!macro.stopwatchState) {
+        macro.stopwatchState = {
+            elapsed: 0,
+            isRunning: false,
+            startTime: null,
+            lastElapsed: 0
+        };
+    }
+
+    const state = macro.stopwatchState;
+    state.elapsed = 0;
+    state.lastElapsed = 0;
+    state.isRunning = false;
+    state.startTime = null;
+
+    saveMacrosAndSettings();
+    updateWidgets();
 }
 
 // Pomodoro Timer Functions
@@ -2627,8 +3614,14 @@ function completePomodoroPhase(macro) {
 }
 
 function startWidgetUpdates() {
-    // Check if there are any library widgets (filter out undefined)
-    const hasWidgets = macros.some(m => m && m.type === 'library');
+    // Check if there are any library widgets (main macros + current folder macros if in folder view)
+    let hasWidgets = macros.some(m => m && m.type === 'library');
+    
+    // Also check folder macros if in folder view
+    if (!hasWidgets && currentFolderId && folderMacros[currentFolderId]) {
+        hasWidgets = folderMacros[currentFolderId].some(m => m && m.type === 'library');
+    }
+    
     if (!hasWidgets) {
         // Clear intervals if no widgets
         if (widgetUpdateInterval) {
@@ -2657,11 +3650,19 @@ function startWidgetUpdates() {
         updateWidgets();
     }, 50);
 
-    // Fetch system stats if there are system monitoring widgets
-    const hasSystemWidgets = macros.some(m =>
+    // Fetch system stats if there are system monitoring widgets (check both main and folder macros)
+    let hasSystemWidgets = macros.some(m =>
         m && m.type === 'library' &&
-        ['cpu', 'memory', 'disk', 'bandwidth'].includes(m.config?.widgetType)
+        ['cpu', 'memory', 'disk', 'bandwidth', 'gpu'].includes(m.config?.widgetType)
     );
+    
+    // Also check folder macros if in folder view
+    if (!hasSystemWidgets && currentFolderId && folderMacros[currentFolderId]) {
+        hasSystemWidgets = folderMacros[currentFolderId].some(m =>
+            m && m.type === 'library' &&
+            ['cpu', 'memory', 'disk', 'bandwidth', 'gpu'].includes(m.config?.widgetType)
+        );
+    }
 
     if (hasSystemWidgets) {
         fetchSystemStats();
@@ -2674,8 +3675,16 @@ function startWidgetUpdates() {
         updateWidgets();
     }, 1000);
 
-    // Start RSS updates for any RSS widgets
-    macros.filter(m => m && m.type === 'library' && m.config?.widgetType === 'rss').forEach(macro => {
+    // Start RSS updates for any RSS widgets (check both main and folder macros)
+    let rssWidgets = macros.filter(m => m && m.type === 'library' && m.config?.widgetType === 'rss');
+    
+    // Also check folder macros if in folder view
+    if (currentFolderId && folderMacros[currentFolderId]) {
+        const folderRssWidgets = folderMacros[currentFolderId].filter(m => m && m.type === 'library' && m.config?.widgetType === 'rss');
+        rssWidgets = rssWidgets.concat(folderRssWidgets);
+    }
+    
+    rssWidgets.forEach(macro => {
         // If RSS items haven't been loaded yet, fetch them
         if (!macro.rssItems || macro.rssItems.length === 0) {
             if (macro.config?.feedUrls && macro.config.feedUrls.length > 0) {
@@ -2707,6 +3716,63 @@ function startWidgetUpdates() {
             });
         }
     });
+
+    // Update Stock widgets
+    macros.filter(m => m && m.type === 'library' && m.config?.widgetType === 'stocks').forEach(macro => {
+        const now = Date.now();
+        // Update every 60 seconds or if no data
+        if (!macro.lastStockUpdate || (now - macro.lastStockUpdate > 60000)) {
+            fetchStockData(macro).then(() => {
+                updateWidgets();
+            });
+        }
+    });
+
+    // Update Weather widgets
+    macros.filter(m => m && m.type === 'library' && m.config?.widgetType === 'weather').forEach(macro => {
+        const now = Date.now();
+        // Update every 10 minutes or if no data
+        if (!macro.lastWeatherUpdate || (now - macro.lastWeatherUpdate > 600000)) {
+            fetchWeatherData(macro).then(() => {
+                updateWidgets();
+                // Update icon in the widget
+                const widgetIconEl = document.getElementById(`widget-icon-${macro.id}`);
+                if (widgetIconEl && macro.weatherData) {
+                    widgetIconEl.textContent = getWeatherIcon(macro.weatherData.weatherCode);
+                }
+            });
+        } else {
+            // Even if not updating, make sure icon is set correctly
+            const widgetIconEl = document.getElementById(`widget-icon-${macro.id}`);
+            if (widgetIconEl && macro.weatherData) {
+                widgetIconEl.textContent = getWeatherIcon(macro.weatherData.weatherCode);
+            }
+        }
+    });
+}
+
+async function fetchStockData(macro) {
+    if (!macro.config?.apiKey || !macro.config?.symbol) {
+        macro.stockError = 'Config missing';
+        return;
+    }
+
+    try {
+        macro.lastStockUpdate = Date.now();
+        const data = await window.electronAPI.fetchStockPrice(macro.config.apiKey, macro.config.symbol);
+
+        if (data.error) {
+            console.error('Stock API Error:', data.error);
+            macro.stockError = data.error;
+            macro.stockData = null;
+        } else {
+            macro.stockData = data;
+            macro.stockError = null;
+        }
+    } catch (err) {
+        console.error('Error fetching stock:', err);
+        macro.stockError = err.message;
+    }
 }
 
 async function fetchCryptoData(macro) {
@@ -2733,57 +3799,144 @@ async function fetchCryptoData(macro) {
     }
 }
 
+async function fetchWeatherData(macro) {
+    if (!macro.config?.latitude || !macro.config?.longitude) {
+        macro.weatherError = 'Location missing';
+        return;
+    }
+
+    try {
+        macro.lastWeatherUpdate = Date.now();
+        const data = await window.electronAPI.fetchWeather(macro.config.latitude, macro.config.longitude);
+
+        if (data.error) {
+            console.error('Weather API Error:', data.error);
+            macro.weatherError = data.error;
+            macro.weatherData = null;
+        } else {
+            macro.weatherData = data;
+            macro.weatherError = null;
+        }
+    } catch (err) {
+        console.error('Error fetching weather:', err);
+        macro.weatherError = err.message;
+    }
+}
+
 // Widget updates are restarted in renderDeckGrid itself
 
 // --- Library Modal Functions ---
 const AVAILABLE_WIDGETS = [
+    // System Monitors
     {
         type: 'cpu',
         label: 'CPU Usage',
         icon: '⚡',
-        description: 'Live CPU load percentage.'
+        description: 'Live CPU load percentage.',
+        category: 'System Monitors'
     },
     {
         type: 'memory',
         label: 'Memory Usage',
         icon: '🧠',
-        description: 'RAM usage as a percentage.'
+        description: 'RAM usage as a percentage.',
+        category: 'System Monitors'
     },
     {
         type: 'disk',
         label: 'Disk Usage',
         icon: '💿',
-        description: 'Disk space or activity level.'
+        description: 'Disk space or activity level.',
+        category: 'System Monitors'
     },
     {
         type: 'bandwidth',
         label: 'Network Bandwidth',
         icon: '📡',
-        description: 'Upload / download throughput.'
+        description: 'Upload / download throughput.',
+        category: 'System Monitors'
     },
+    {
+        type: 'gpu',
+        label: 'GPU Usage',
+        icon: '🎮',
+        description: 'GPU utilization and memory usage.',
+        category: 'System Monitors'
+    },
+    // Productivity
+    {
+        type: 'pomodoro',
+        label: 'Pomodoro Timer',
+        icon: '🍅',
+        description: '25-minute work intervals with breaks.',
+        category: 'Productivity'
+    },
+    {
+        type: 'stopwatch',
+        label: 'Stopwatch',
+        icon: '⏱️',
+        description: 'Track elapsed time with start/stop/reset.',
+        category: 'Productivity'
+    },
+    // Information
     {
         type: 'clock',
         label: 'Clock',
         icon: '🕐',
-        description: 'Digital system time.'
+        description: 'Digital system time.',
+        category: 'Information'
+    },
+    {
+        type: 'weather',
+        label: 'Weather',
+        icon: '🌤️',
+        description: 'Current weather conditions and temperature.',
+        category: 'Information'
     },
     {
         type: 'rss',
         label: 'RSS Feed',
         icon: '📰',
-        description: 'Scroll through RSS headlines and images.'
+        description: 'Scroll through RSS headlines and images.',
+        category: 'Information'
+    },
+    {
+        type: 'stocks',
+        label: 'Stock Ticker',
+        icon: '📈',
+        description: 'Live stock prices via Alpha Vantage.',
+        category: 'Information'
     },
     {
         type: 'crypto',
         label: 'Cryptoticker',
         icon: '💰',
-        description: 'Live crypto prices via CoinMarketCap.'
+        description: 'Live crypto prices via CoinMarketCap.',
+        category: 'Information'
     },
+    // Automation
     {
-        type: 'pomodoro',
-        label: 'Pomodoro Timer',
-        icon: '🍅',
-        description: '25-minute work intervals with breaks.'
+        type: 'ifttt',
+        label: 'IFTTT Webhook',
+        icon: '🔗',
+        description: 'Trigger IFTTT automations and applets.',
+        category: 'Automation'
+    },
+    // Media
+    {
+        type: 'tts',
+        label: 'Text to Speech',
+        icon: '🔊',
+        description: 'Convert text to speech using Deepgram API.',
+        category: 'Media'
+    },
+    // Organization
+    {
+        type: 'folder',
+        label: 'Folder',
+        icon: '📁',
+        description: 'Organize macros into folders.',
+        category: 'Organization'
     }
 ];
 
@@ -2795,71 +3948,115 @@ function openLibraryModal() {
 
     grid.innerHTML = '';
 
+    // Group widgets by category
+    const widgetsByCategory = {};
     AVAILABLE_WIDGETS.forEach(widget => {
-        const preview = document.createElement('div');
-        preview.classList.add('library-widget-preview', 'deck-widget');
-        preview.dataset.widgetType = widget.type;
-        preview.draggable = true;
-
-        const widgetContent = document.createElement('div');
-        widgetContent.classList.add('widget-content');
-
-        const widgetIcon = document.createElement('div');
-        widgetIcon.classList.add('widget-icon');
-        widgetIcon.textContent = widget.icon;
-
-        const widgetLabel = document.createElement('div');
-        widgetLabel.classList.add('widget-label');
-        widgetLabel.textContent = widget.label;
-
-        const widgetDescription = document.createElement('div');
-        widgetDescription.classList.add('widget-description');
-        widgetDescription.textContent = widget.description || '';
-
-        const widgetValue = document.createElement('div');
-        widgetValue.classList.add('widget-value');
-        widgetValue.textContent = widget.type === 'clock' ? getCurrentTime() : '...';
-
-        widgetContent.appendChild(widgetIcon);
-        widgetContent.appendChild(widgetLabel);
-        if (widget.description) {
-            widgetContent.appendChild(widgetDescription);
+        const category = widget.category || 'Other';
+        if (!widgetsByCategory[category]) {
+            widgetsByCategory[category] = [];
         }
-        widgetContent.appendChild(widgetValue);
-        preview.appendChild(widgetContent);
+        widgetsByCategory[category].push(widget);
+    });
 
-        // Drag start
-        preview.addEventListener('dragstart', (e) => {
-            e.dataTransfer.effectAllowed = 'copy';
-            e.dataTransfer.setData('application/json', JSON.stringify({
-                type: 'library',
-                widgetType: widget.type
-            }));
-            preview.classList.add('dragging');
-        });
+    // Define category order
+    const categoryOrder = ['System Monitors', 'Productivity', 'Information', 'Automation', 'Media', 'Organization', 'Other'];
 
-        preview.addEventListener('dragend', (e) => {
-            preview.classList.remove('dragging');
-        });
+    // Render widgets by category
+    categoryOrder.forEach(category => {
+        if (!widgetsByCategory[category] || widgetsByCategory[category].length === 0) return;
 
-        // Right-click to add
-        preview.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            addWidgetToDeck(widget.type);
-        });
+        // Create category header
+        const categoryHeader = document.createElement('div');
+        categoryHeader.style.cssText = 'grid-column: 1 / -1; font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-top: 16px; margin-bottom: 8px; padding: 4px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1);';
+        categoryHeader.textContent = category;
+        grid.appendChild(categoryHeader);
 
-        // Click to add (or configure for RSS/Crypto)
-        preview.addEventListener('click', () => {
-            if (widget.type === 'rss') {
-                openRssConfigModal();
-            } else if (widget.type === 'crypto') {
-                openCryptoConfigModal();
-            } else {
-                addWidgetToDeck(widget.type);
+        // Render widgets in this category
+        widgetsByCategory[category].forEach(widget => {
+            const preview = document.createElement('div');
+            preview.classList.add('library-widget-preview', 'deck-widget');
+            preview.dataset.widgetType = widget.type;
+            preview.draggable = true;
+
+            const widgetContent = document.createElement('div');
+            widgetContent.classList.add('widget-content');
+
+            const widgetIcon = document.createElement('div');
+            widgetIcon.classList.add('widget-icon');
+            widgetIcon.textContent = widget.icon;
+
+            const widgetLabel = document.createElement('div');
+            widgetLabel.classList.add('widget-label');
+            widgetLabel.textContent = widget.label;
+
+            const widgetDescription = document.createElement('div');
+            widgetDescription.classList.add('widget-description');
+            widgetDescription.textContent = widget.description || '';
+
+            const widgetValue = document.createElement('div');
+            widgetValue.classList.add('widget-value');
+            widgetValue.textContent = widget.type === 'clock' ? getCurrentTime() : widget.type === 'stopwatch' ? '00:00:00' : '...';
+
+            widgetContent.appendChild(widgetIcon);
+            widgetContent.appendChild(widgetLabel);
+            if (widget.description) {
+                widgetContent.appendChild(widgetDescription);
             }
-        });
+            widgetContent.appendChild(widgetValue);
+            preview.appendChild(widgetContent);
 
-        grid.appendChild(preview);
+            // Drag start
+            preview.addEventListener('dragstart', (e) => {
+                e.dataTransfer.effectAllowed = 'copy';
+                e.dataTransfer.setData('application/json', JSON.stringify({
+                    type: 'library',
+                    widgetType: widget.type
+                }));
+                preview.classList.add('dragging');
+            });
+
+            preview.addEventListener('dragend', (e) => {
+                preview.classList.remove('dragging');
+            });
+
+            // Right-click to add
+            preview.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                addWidgetToDeck(widget.type);
+            });
+
+            // Click to add (or configure for RSS/Crypto/IFTTT/Stocks)
+            preview.addEventListener('click', () => {
+                // Set pending folder target if we're in a folder
+                if (currentFolderId) {
+                    pendingFolderTarget = currentFolderId;
+                }
+                
+                if (widget.type === 'rss') {
+                    openRssConfigModal();
+                } else if (widget.type === 'crypto') {
+                    openCryptoConfigModal();
+                } else if (widget.type === 'ifttt') {
+                    openIftttConfigModal();
+                } else if (widget.type === 'stocks') {
+                    openStockConfigModal();
+                } else if (widget.type === 'weather') {
+                    openWeatherConfigModal();
+                } else if (widget.type === 'disk') {
+                    openDiskConfigModal();
+                } else if (widget.type === 'gpu') {
+                    openGpuConfigModal();
+                } else if (widget.type === 'folder') {
+                    openFolderConfigModal();
+                } else if (widget.type === 'tts') {
+                    openTtsSettingsModal();
+                } else {
+                    addWidgetToDeck(widget.type);
+                }
+            });
+
+            grid.appendChild(preview);
+        });
     });
 
     // Update library modal widgets
@@ -2904,8 +4101,19 @@ function updateLibraryModalWidgets() {
                 }
                 break;
             case 'disk':
-                if (systemStats) {
-                    displayValue = `${Math.round(systemStats.disk.percentage)}%`;
+                if (systemStats && systemStats.disk) {
+                    // Show free/available space percentage instead of used
+                    const freePercentage = systemStats.disk.total > 0 
+                        ? ((systemStats.disk.free / systemStats.disk.total) * 100) 
+                        : 0;
+                    displayValue = `${Math.round(freePercentage)}%`;
+                } else {
+                    displayValue = '...';
+                }
+                break;
+            case 'gpu':
+                if (systemStats && systemStats.gpu) {
+                    displayValue = `${Math.round(systemStats.gpu.usage)}%`;
                 } else {
                     displayValue = '...';
                 }
@@ -2932,6 +4140,30 @@ function updateLibraryModalWidgets() {
                     displayValue = `${String(pomodoroMinutes).padStart(2, '0')}:${String(pomodoroSeconds).padStart(2, '0')}`;
                 } else {
                     displayValue = '25:00';
+                }
+                break;
+            case 'stopwatch':
+                // Find the macro for this stopwatch widget
+                const stopwatchMacro = macros.find(m => m && m.type === 'library' && m.config?.widgetType === 'stopwatch');
+                if (stopwatchMacro && stopwatchMacro.stopwatchState) {
+                    const state = stopwatchMacro.stopwatchState;
+                    let elapsed = state.elapsed;
+                    if (state.isRunning && state.startTime) {
+                        elapsed = state.lastElapsed + (Date.now() - state.startTime);
+                    }
+                    const totalMs = elapsed;
+                    const hours = Math.floor(totalMs / 3600000);
+                    const minutes = Math.floor((totalMs % 3600000) / 60000);
+                    const seconds = Math.floor((totalMs % 60000) / 1000);
+                    const milliseconds = Math.floor((totalMs % 1000) / 10);
+                    
+                    if (hours > 0) {
+                        displayValue = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(milliseconds).padStart(2, '0')}`;
+                    } else {
+                        displayValue = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(milliseconds).padStart(2, '0')}`;
+                    }
+                } else {
+                    displayValue = '00:00.00';
                 }
                 break;
         }
@@ -2975,18 +4207,23 @@ function getCurrentTime() {
 }
 
 function addWidgetToDeck(widgetType) {
-    // Find first available slot across all pages
-    const targetIndex = findFirstAvailableSlot(0);
+    // Get target macros array (folder or main)
+    const { macros: targetMacros, folderId } = getTargetMacros();
+    
+    // Find first available slot in the target macros array
+    const targetIndex = findFirstAvailableSlot(0, targetMacros);
 
     if (targetIndex === -1) {
         alert('Deck is full! Remove a macro first or add more pages in settings.');
         return;
     }
 
-    // Switch to the page where the widget is being added
-    const targetPage = Math.floor(targetIndex / SLOTS_PER_PAGE);
-    if (targetPage !== currentPage) {
-        currentPage = targetPage;
+    // Only switch pages if we're in the main view (not in a folder)
+    if (!folderId) {
+        const targetPage = Math.floor(targetIndex / SLOTS_PER_PAGE);
+        if (targetPage !== currentPage) {
+            currentPage = targetPage;
+        }
     }
 
     const id = 'macro-' + Date.now();
@@ -3000,7 +4237,11 @@ function addWidgetToDeck(widgetType) {
         iconData: null
     };
 
-    macros[targetIndex] = newMacro;
+    targetMacros[targetIndex] = newMacro;
+    
+    // Clear pending folder target after use
+    pendingFolderTarget = null;
+    
     saveMacrosAndSettings();
     renderDeckGrid();
     closeLibraryModal();
@@ -3240,16 +4481,19 @@ async function saveRssConfig() {
         return;
     }
 
+    // Get target macros array (folder or main)
+    const { macros: targetMacros, folderId } = getTargetMacros();
+
     let targetSlot = -1;
     let newMacro = null;
 
     if (activeMacroId) {
         // Updating existing macro
-        const idx = macros.findIndex(m => m && m.id === activeMacroId);
+        const idx = targetMacros.findIndex(m => m && m.id === activeMacroId);
         if (idx >= 0) {
             targetSlot = idx;
             // Get existing macro to preserve other props if needed
-            const existing = macros[idx];
+            const existing = targetMacros[idx];
             newMacro = {
                 ...existing,
                 size,
@@ -3263,11 +4507,12 @@ async function saveRssConfig() {
         }
     } else {
         // Creating new macro
-        // Find first available slot across all pages
-        targetSlot = findFirstAvailableSlot(0);
+        // Find first available slot
+        targetSlot = findFirstAvailableSlot(0, targetMacros);
 
         if (targetSlot === -1) {
             alert('Deck is full! Remove a macro first or add more pages in settings.');
+            pendingFolderTarget = null; // Clear pending target
             return;
         }
 
@@ -3276,6 +4521,9 @@ async function saveRssConfig() {
         if (targetPage !== currentPage) {
             currentPage = targetPage;
         }
+        
+        // Clear pending folder target after use
+        pendingFolderTarget = null;
 
         const id = 'macro-' + Date.now();
         newMacro = {
@@ -3296,7 +4544,7 @@ async function saveRssConfig() {
     }
 
     if (targetSlot !== -1 && newMacro) {
-        macros[targetSlot] = newMacro;
+        targetMacros[targetSlot] = newMacro;
 
         // Fetch RSS feeds immediately
         try {
@@ -3370,16 +4618,19 @@ async function saveCryptoConfig() {
         return;
     }
 
+    // Get target macros array (folder or main)
+    const { macros: targetMacros, folderId } = getTargetMacros();
+
     let targetSlot = -1;
     let newMacro = null;
 
     if (activeMacroId) {
         // Updating existing macro
-        const idx = macros.findIndex(m => m && m.id === activeMacroId);
+        const idx = targetMacros.findIndex(m => m && m.id === activeMacroId);
         if (idx >= 0) {
             targetSlot = idx;
             // Get existing macro to preserve other props if needed
-            const existing = macros[idx];
+            const existing = targetMacros[idx];
             newMacro = {
                 ...existing,
                 size,
@@ -3393,6 +4644,256 @@ async function saveCryptoConfig() {
             // Reset cache so we fetch new data immediately
             delete existing.cryptoData;
             delete existing.lastCryptoUpdate;
+        }
+    } else {
+        // Creating new macro
+        // Find first available slot
+        targetSlot = findFirstAvailableSlot(0, targetMacros);
+
+        if (targetSlot === -1) {
+            alert('Deck is full! Remove a macro first or add more pages in settings.');
+            pendingFolderTarget = null; // Clear pending target
+            return;
+        }
+
+        // Switch to the page where the macro is being added
+        const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
+        if (targetPage !== currentPage) {
+            currentPage = targetPage;
+        }
+        
+        // Clear pending folder target after use
+        pendingFolderTarget = null;
+
+        const id = 'macro-' + Date.now();
+        newMacro = {
+            id,
+            label: 'Cryptoticker',
+            type: 'library',
+            size,
+            config: {
+                widgetType: 'crypto',
+                apiKey: apiKey,
+                symbol: symbol
+            },
+            iconData: null
+        };
+    }
+
+    if (targetSlot !== -1 && newMacro) {
+        targetMacros[targetSlot] = newMacro;
+
+        saveMacrosAndSettings();
+        renderDeckGrid();
+        closeCryptoConfigModal();
+    }
+}
+
+// --- IFTTT Config Functions ---
+
+function openIftttConfigModal(macro) {
+    activeMacroId = macro ? macro.id : null;
+
+    const eventInput = document.getElementById('ifttt-event');
+    const value1Input = document.getElementById('ifttt-value1');
+    const value2Input = document.getElementById('ifttt-value2');
+    const value3Input = document.getElementById('ifttt-value3');
+
+    if (macro && macro.config) {
+        eventInput.value = macro.config.event || '';
+        value1Input.value = macro.config.value1 || '';
+        value2Input.value = macro.config.value2 || '';
+        value3Input.value = macro.config.value3 || '';
+        const sizeSelect = document.getElementById('ifttt-size');
+        if (sizeSelect) sizeSelect.value = macro.size || 1;
+    } else {
+        eventInput.value = '';
+        value1Input.value = '';
+        value2Input.value = '';
+        value3Input.value = '';
+        const sizeSelect = document.getElementById('ifttt-size');
+        if (sizeSelect) sizeSelect.value = 1;
+    }
+
+    const backdrop = document.getElementById('ifttt-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'flex';
+    }
+}
+
+function closeIftttConfigModal() {
+    const backdrop = document.getElementById('ifttt-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'none';
+    }
+}
+
+async function saveIftttConfig() {
+    const eventInput = document.getElementById('ifttt-event');
+    const value1Input = document.getElementById('ifttt-value1');
+    const value2Input = document.getElementById('ifttt-value2');
+    const value3Input = document.getElementById('ifttt-value3');
+
+    if (!eventInput) return;
+
+    const event = eventInput.value.trim();
+    const value1 = value1Input.value.trim();
+    const value2 = value2Input.value.trim();
+    const value3 = value3Input.value.trim();
+    const size = parseInt(document.getElementById('ifttt-size').value) || 1;
+
+    if (!event) {
+        alert('Please enter an event name');
+        return;
+    }
+
+    let targetSlot = -1;
+    let newMacro = null;
+
+    // Get target macros array (folder or main) - add this before activeMacroId check
+    const { macros: targetMacros, folderId } = getTargetMacros();
+
+    if (activeMacroId) {
+        // Updating existing macro
+        const idx = targetMacros.findIndex(m => m && m.id === activeMacroId);
+        if (idx >= 0) {
+            targetSlot = idx;
+            const existing = targetMacros[idx];
+            const config = {
+                ...existing.config,
+                widgetType: 'ifttt',
+                event
+            };
+            if (value1) config.value1 = value1;
+            if (value2) config.value2 = value2;
+            if (value3) config.value3 = value3;
+
+            newMacro = {
+                ...existing,
+                size,
+                config
+            };
+        }
+    } else {
+        // Creating new macro
+        targetSlot = findFirstAvailableSlot(0, targetMacros);
+
+        if (targetSlot === -1) {
+            alert('Deck is full! Remove a macro first or add more pages in settings.');
+            pendingFolderTarget = null; // Clear pending target
+            return;
+        }
+
+        // Switch to the page where the macro is being added
+        const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
+        if (targetPage !== currentPage) {
+            currentPage = targetPage;
+        }
+        
+        // Clear pending folder target after use
+        pendingFolderTarget = null;
+
+        const id = 'macro-' + Date.now();
+        const config = {
+            widgetType: 'ifttt',
+            event
+        };
+        if (value1) config.value1 = value1;
+        if (value2) config.value2 = value2;
+        if (value3) config.value3 = value3;
+
+        newMacro = {
+            id,
+            label: 'IFTTT',
+            type: 'library',
+            size,
+            config,
+            iconData: null
+        };
+    }
+
+    if (newMacro && targetSlot >= 0) {
+        targetMacros[targetSlot] = newMacro;
+        saveMacrosAndSettings();
+        renderDeckGrid();
+        closeIftttConfigModal();
+    }
+}
+
+// --- Stock Config Functions ---
+
+function openStockConfigModal(macro) {
+    activeMacroId = macro ? macro.id : null;
+
+    const apiKeyInput = document.getElementById('stock-api-key');
+    const symbolInput = document.getElementById('stock-symbol');
+
+    if (macro && macro.config) {
+        apiKeyInput.value = macro.config.apiKey || '';
+        symbolInput.value = macro.config.symbol || '';
+        const sizeSelect = document.getElementById('stock-size');
+        if (sizeSelect) sizeSelect.value = macro.size || 1;
+    } else {
+        apiKeyInput.value = '';
+        symbolInput.value = '';
+        const sizeSelect = document.getElementById('stock-size');
+        if (sizeSelect) sizeSelect.value = 1;
+    }
+
+    const backdrop = document.getElementById('stock-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'flex';
+    }
+}
+
+function closeStockConfigModal() {
+    const backdrop = document.getElementById('stock-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'none';
+    }
+}
+
+async function saveStockConfig() {
+    const apiKeyInput = document.getElementById('stock-api-key');
+    const symbolInput = document.getElementById('stock-symbol');
+
+    if (!apiKeyInput || !symbolInput) return;
+
+    const apiKey = apiKeyInput.value.trim();
+    const symbol = symbolInput.value.trim().toUpperCase();
+    const size = parseInt(document.getElementById('stock-size').value) || 1;
+
+    if (!apiKey || !symbol) {
+        alert('Please enter both API Key and Stock Symbol');
+        return;
+    }
+
+    let targetSlot = -1;
+    let newMacro = null;
+
+    // Get target macros array (folder or main) - add this before activeMacroId check
+    const { macros: targetMacros, folderId } = getTargetMacros();
+
+    if (activeMacroId) {
+        // Updating existing macro
+        const idx = targetMacros.findIndex(m => m && m.id === activeMacroId);
+        if (idx >= 0) {
+            targetSlot = idx;
+            // Get existing macro to preserve other props if needed
+            const existing = targetMacros[idx];
+            newMacro = {
+                ...existing,
+                size,
+                config: {
+                    ...existing.config,
+                    widgetType: 'stocks',
+                    apiKey,
+                    symbol
+                }
+            };
+            // Reset cache so we fetch new data immediately
+            delete existing.stockData;
+            delete existing.lastStockUpdate;
         }
     } else {
         // Creating new macro
@@ -3413,31 +4914,946 @@ async function saveCryptoConfig() {
         const id = 'macro-' + Date.now();
         newMacro = {
             id,
-            label: 'Cryptoticker',
+            label: 'Stock Ticker',
             type: 'library',
             size,
             config: {
-                widgetType: 'crypto',
-                apiKey: apiKey,
-                symbol: symbol
+                widgetType: 'stocks',
+                apiKey,
+                symbol
             },
             iconData: null
         };
     }
 
-    if (targetSlot !== -1 && newMacro) {
-        macros[targetSlot] = newMacro;
-
+    if (newMacro && targetSlot >= 0) {
+        targetMacros[targetSlot] = newMacro;
         saveMacrosAndSettings();
         renderDeckGrid();
-        closeCryptoConfigModal();
+        closeStockConfigModal();
     }
+}
+
+// --- Weather Config Functions ---
+
+function displayCitySuggestions(results) {
+    const suggestionsEl = document.getElementById('weather-city-suggestions');
+    if (!suggestionsEl) return;
+
+    suggestionsEl.innerHTML = '';
+
+    if (!results || results.length === 0) {
+        suggestionsEl.style.display = 'none';
+        return;
+    }
+
+    results.forEach((city) => {
+        const item = document.createElement('div');
+        item.style.padding = '8px 12px';
+        item.style.cursor = 'pointer';
+        item.style.borderBottom = '1px solid var(--border-color)';
+        item.style.color = 'var(--text-primary)';
+        item.textContent = `${city.name}, ${city.admin1 || ''} ${city.country || ''}`.trim();
+        
+        item.addEventListener('mouseenter', () => {
+            item.style.background = 'var(--bg-secondary)';
+        });
+        item.addEventListener('mouseleave', () => {
+            item.style.background = 'transparent';
+        });
+        
+        item.addEventListener('click', () => {
+            const cityInput = document.getElementById('weather-city');
+            if (cityInput) {
+                // Show full name in input for user reference
+                cityInput.value = `${city.name}, ${city.admin1 || ''} ${city.country || ''}`.trim();
+                cityInput.dataset.latitude = city.latitude;
+                cityInput.dataset.longitude = city.longitude;
+                // Store only city name (without country) for display
+                cityInput.dataset.cityName = city.name;
+            }
+            suggestionsEl.style.display = 'none';
+        });
+
+        suggestionsEl.appendChild(item);
+    });
+
+    suggestionsEl.style.display = 'block';
+}
+
+function openWeatherConfigModal(macro) {
+    activeMacroId = macro ? macro.id : null;
+
+    const cityInput = document.getElementById('weather-city');
+
+    if (macro && macro.config) {
+        // Only show city name (without country) in the input field
+        const cityName = macro.config.cityName || '';
+        // If cityName contains comma, only take the part before the comma
+        const displayName = cityName.split(',')[0].trim();
+        cityInput.value = displayName;
+        if (macro.config.latitude && macro.config.longitude) {
+            cityInput.dataset.latitude = macro.config.latitude;
+            cityInput.dataset.longitude = macro.config.longitude;
+            cityInput.dataset.cityName = displayName; // Store only city name
+        }
+        const sizeSelect = document.getElementById('weather-size');
+        if (sizeSelect) sizeSelect.value = macro.size || 1;
+    } else {
+        cityInput.value = '';
+        delete cityInput.dataset.latitude;
+        delete cityInput.dataset.longitude;
+        delete cityInput.dataset.cityName;
+        const sizeSelect = document.getElementById('weather-size');
+        if (sizeSelect) sizeSelect.value = 1;
+    }
+
+    const backdrop = document.getElementById('weather-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'flex';
+    }
+}
+
+function closeWeatherConfigModal() {
+    const backdrop = document.getElementById('weather-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'none';
+    }
+    const suggestionsEl = document.getElementById('weather-city-suggestions');
+    if (suggestionsEl) {
+        suggestionsEl.style.display = 'none';
+    }
+}
+
+async function saveWeatherConfig() {
+    const cityInput = document.getElementById('weather-city');
+    if (!cityInput) return;
+
+    // Use the stored cityName (without country) instead of the full input value
+    const cityName = cityInput.dataset.cityName || cityInput.value.split(',')[0].trim();
+    const latitude = cityInput.dataset.latitude;
+    const longitude = cityInput.dataset.longitude;
+    const size = parseInt(document.getElementById('weather-size').value) || 1;
+
+    if (!cityName || !latitude || !longitude) {
+        alert('Please select a city from the suggestions');
+        return;
+    }
+
+    let targetSlot = -1;
+    let newMacro = null;
+
+    // Get target macros array (folder or main) - add this before activeMacroId check
+    const { macros: targetMacros, folderId } = getTargetMacros();
+
+    if (activeMacroId) {
+        // Updating existing macro
+        const idx = targetMacros.findIndex(m => m && m.id === activeMacroId);
+        if (idx >= 0) {
+            targetSlot = idx;
+            const existing = targetMacros[idx];
+            newMacro = {
+                ...existing,
+                size,
+                config: {
+                    ...existing.config,
+                    widgetType: 'weather',
+                    cityName,
+                    latitude: parseFloat(latitude),
+                    longitude: parseFloat(longitude)
+                }
+            };
+            // Reset cache so we fetch new data immediately
+            delete existing.weatherData;
+            delete existing.lastWeatherUpdate;
+        }
+    } else {
+        // Creating new macro
+        targetSlot = findFirstAvailableSlot(0, targetMacros);
+
+        if (targetSlot === -1) {
+            alert('Deck is full! Remove a macro first or add more pages in settings.');
+            pendingFolderTarget = null; // Clear pending target
+            return;
+        }
+
+        // Switch to the page where the macro is being added
+        const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
+        if (targetPage !== currentPage) {
+            currentPage = targetPage;
+        }
+        
+        // Clear pending folder target after use
+        pendingFolderTarget = null;
+
+        const id = 'macro-' + Date.now();
+        newMacro = {
+            id,
+            label: 'Weather',
+            type: 'library',
+            size,
+            config: {
+                widgetType: 'weather',
+                cityName,
+                latitude: parseFloat(latitude),
+                longitude: parseFloat(longitude)
+            },
+            iconData: null
+        };
+    }
+
+    if (newMacro && targetSlot >= 0) {
+        targetMacros[targetSlot] = newMacro;
+        saveMacrosAndSettings();
+        renderDeckGrid();
+        closeWeatherConfigModal();
+    }
+}
+
+// --- Disk Config Functions ---
+
+async function openDiskConfigModal(macro) {
+    activeMacroId = macro ? macro.id : null;
+
+    const diskSelectEl = document.getElementById('disk-select');
+    if (!diskSelectEl) return;
+
+    // Load available disks
+    try {
+        const disks = await window.electronAPI.getAvailableDisks();
+        diskSelectEl.innerHTML = '';
+        disks.forEach(disk => {
+            const option = document.createElement('option');
+            option.value = disk;
+            option.textContent = disk;
+            diskSelectEl.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading disks:', error);
+    }
+
+    if (macro && macro.config) {
+        diskSelectEl.value = macro.config.diskLetter || 'C:';
+        const sizeSelect = document.getElementById('disk-size');
+        if (sizeSelect) sizeSelect.value = macro.size || 1;
+    } else {
+        diskSelectEl.value = 'C:';
+        const sizeSelect = document.getElementById('disk-size');
+        if (sizeSelect) sizeSelect.value = 1;
+    }
+
+    const backdrop = document.getElementById('disk-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'flex';
+    }
+}
+
+function closeDiskConfigModal() {
+    const backdrop = document.getElementById('disk-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'none';
+    }
+}
+
+async function saveDiskConfig() {
+    const diskSelectEl = document.getElementById('disk-select');
+    if (!diskSelectEl) return;
+
+    const diskLetter = diskSelectEl.value;
+    const size = parseInt(document.getElementById('disk-size').value) || 1;
+
+    let targetSlot = -1;
+    let newMacro = null;
+
+    // Get target macros array (folder or main) - add this before activeMacroId check
+    const { macros: targetMacros, folderId } = getTargetMacros();
+
+    if (activeMacroId) {
+        // Updating existing macro
+        const idx = targetMacros.findIndex(m => m && m.id === activeMacroId);
+        if (idx >= 0) {
+            targetSlot = idx;
+            const existing = targetMacros[idx];
+            newMacro = {
+                ...existing,
+                size,
+                config: {
+                    ...existing.config,
+                    widgetType: 'disk',
+                    diskLetter
+                }
+            };
+        }
+    } else {
+        // Creating new macro
+        targetSlot = findFirstAvailableSlot(0, targetMacros);
+
+        if (targetSlot === -1) {
+            alert('Deck is full! Remove a macro first or add more pages in settings.');
+            pendingFolderTarget = null; // Clear pending target
+            return;
+        }
+
+        // Switch to the page where the macro is being added
+        const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
+        if (targetPage !== currentPage) {
+            currentPage = targetPage;
+        }
+        
+        // Clear pending folder target after use
+        pendingFolderTarget = null;
+
+        const id = 'macro-' + Date.now();
+        newMacro = {
+            id,
+            label: `Disk ${diskLetter}`,
+            type: 'library',
+            size,
+            config: {
+                widgetType: 'disk',
+                diskLetter
+            },
+            iconData: null
+        };
+    }
+
+    if (newMacro && targetSlot >= 0) {
+        targetMacros[targetSlot] = newMacro;
+        saveMacrosAndSettings();
+        renderDeckGrid();
+        closeDiskConfigModal();
+    }
+}
+
+// --- GPU Config Functions ---
+
+async function openGpuConfigModal(macro) {
+    activeMacroId = macro ? macro.id : null;
+
+    const gpuSelectEl = document.getElementById('gpu-select');
+    if (!gpuSelectEl) return;
+
+    // Load available GPUs
+    try {
+        const gpus = await window.electronAPI.getAvailableGpus();
+        gpuSelectEl.innerHTML = '';
+        if (gpus.length === 0) {
+            const option = document.createElement('option');
+            option.value = '0';
+            option.textContent = 'No GPU detected';
+            gpuSelectEl.appendChild(option);
+        } else {
+            gpus.forEach(gpu => {
+                const option = document.createElement('option');
+                option.value = gpu.index;
+                option.textContent = `${gpu.name} (GPU ${gpu.index})`;
+                gpuSelectEl.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading GPUs:', error);
+    }
+
+    if (macro && macro.config) {
+        gpuSelectEl.value = macro.config.gpuIndex || 0;
+        const sizeSelect = document.getElementById('gpu-size');
+        if (sizeSelect) sizeSelect.value = macro.size || 1;
+    } else {
+        gpuSelectEl.value = 0;
+        const sizeSelect = document.getElementById('gpu-size');
+        if (sizeSelect) sizeSelect.value = 1;
+    }
+
+    const backdrop = document.getElementById('gpu-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'flex';
+    }
+}
+
+function closeGpuConfigModal() {
+    const backdrop = document.getElementById('gpu-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'none';
+    }
+}
+
+async function saveGpuConfig() {
+    const gpuSelectEl = document.getElementById('gpu-select');
+    if (!gpuSelectEl) return;
+
+    const gpuIndex = parseInt(gpuSelectEl.value) || 0;
+    const size = parseInt(document.getElementById('gpu-size').value) || 1;
+
+    let targetSlot = -1;
+    let newMacro = null;
+
+    // Get target macros array (folder or main) - add this before activeMacroId check
+    const { macros: targetMacros, folderId } = getTargetMacros();
+
+    if (activeMacroId) {
+        // Updating existing macro
+        const idx = targetMacros.findIndex(m => m && m.id === activeMacroId);
+        if (idx >= 0) {
+            targetSlot = idx;
+            const existing = targetMacros[idx];
+            newMacro = {
+                ...existing,
+                size,
+                config: {
+                    ...existing.config,
+                    widgetType: 'gpu',
+                    gpuIndex
+                }
+            };
+        }
+    } else {
+        // Creating new macro
+        targetSlot = findFirstAvailableSlot(0, targetMacros);
+
+        if (targetSlot === -1) {
+            alert('Deck is full! Remove a macro first or add more pages in settings.');
+            pendingFolderTarget = null; // Clear pending target
+            return;
+        }
+
+        // Switch to the page where the macro is being added
+        const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
+        if (targetPage !== currentPage) {
+            currentPage = targetPage;
+        }
+        
+        // Clear pending folder target after use
+        pendingFolderTarget = null;
+
+        const id = 'macro-' + Date.now();
+        const gpuName = gpuSelectEl.options[gpuSelectEl.selectedIndex]?.textContent || `GPU ${gpuIndex}`;
+        newMacro = {
+            id,
+            label: gpuName,
+            type: 'library',
+            size,
+            config: {
+                widgetType: 'gpu',
+                gpuIndex
+            },
+            iconData: null
+        };
+    }
+
+    if (newMacro && targetSlot >= 0) {
+        targetMacros[targetSlot] = newMacro;
+        saveMacrosAndSettings();
+        renderDeckGrid();
+        closeGpuConfigModal();
+    }
+}
+
+// --- Folder Config Functions ---
+
+function openFolderConfigModal(macro) {
+    activeMacroId = macro ? macro.id : null;
+
+    const labelInput = document.getElementById('folder-label');
+    const backgroundInput = document.getElementById('folder-background');
+    const preview = document.getElementById('folder-background-preview');
+    const previewContainer = document.getElementById('folder-background-preview-container');
+
+    if (macro && macro.config) {
+        labelInput.value = macro.label || '';
+        const sizeSelect = document.getElementById('folder-size');
+        if (sizeSelect) sizeSelect.value = macro.size || 1;
+        
+        if (macro.config.backgroundImage) {
+            if (preview) preview.src = macro.config.backgroundImage;
+            if (previewContainer) previewContainer.style.display = 'block';
+        } else {
+            if (previewContainer) previewContainer.style.display = 'none';
+        }
+    } else {
+        labelInput.value = '';
+        backgroundInput.value = '';
+        if (previewContainer) previewContainer.style.display = 'none';
+        const sizeSelect = document.getElementById('folder-size');
+        if (sizeSelect) sizeSelect.value = 1;
+    }
+
+    const backdrop = document.getElementById('folder-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'flex';
+    }
+}
+
+function closeFolderConfigModal() {
+    const backdrop = document.getElementById('folder-config-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'none';
+    }
+}
+
+async function saveFolderConfig() {
+    const labelInput = document.getElementById('folder-label');
+    const backgroundInput = document.getElementById('folder-background');
+    const preview = document.getElementById('folder-background-preview');
+    
+    if (!labelInput) return;
+
+    const label = labelInput.value.trim() || 'Folder';
+    const size = parseInt(document.getElementById('folder-size').value) || 1;
+    
+    let backgroundImage = null;
+    if (backgroundInput.files && backgroundInput.files[0]) {
+        backgroundImage = await readFileAsDataURL(backgroundInput.files[0]);
+    } else if (preview && preview.src) {
+        // Keep existing background if no new file selected
+        const existingMacro = activeMacroId ? macros.find(m => m && m.id === activeMacroId) : null;
+        if (existingMacro && existingMacro.config?.backgroundImage) {
+            backgroundImage = existingMacro.config.backgroundImage;
+        }
+    }
+
+    let targetSlot = -1;
+    let newMacro = null;
+    let folderId = null;
+
+    if (activeMacroId) {
+        // Updating existing folder
+        const idx = macros.findIndex(m => m && m.id === activeMacroId);
+        if (idx >= 0) {
+            targetSlot = idx;
+            const existing = macros[idx];
+            folderId = existing.config?.folderId || 'folder-' + Date.now();
+            newMacro = {
+                ...existing,
+                label,
+                size,
+                config: {
+                    ...existing.config,
+                    widgetType: 'folder',
+                    folderId,
+                    backgroundImage
+                }
+            };
+            // Initialize folder macros if needed
+            if (!folderMacros[folderId]) {
+                folderMacros[folderId] = [];
+            }
+        }
+    } else {
+        // Creating new folder
+        targetSlot = findFirstAvailableSlot(0);
+
+        if (targetSlot === -1) {
+            alert('Deck is full! Remove a macro first or add more pages in settings.');
+            return;
+        }
+
+        // Switch to the page where the macro is being added
+        const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
+        if (targetPage !== currentPage) {
+            currentPage = targetPage;
+        }
+
+        folderId = 'folder-' + Date.now();
+        newMacro = {
+            id: 'macro-' + Date.now(),
+            label,
+            type: 'library',
+            size,
+            config: {
+                widgetType: 'folder',
+                folderId,
+                backgroundImage
+            },
+            iconData: null
+        };
+        // Initialize folder macros
+        folderMacros[folderId] = [];
+    }
+
+    if (newMacro && targetSlot >= 0) {
+        macros[targetSlot] = newMacro;
+        saveMacrosAndSettings();
+        renderDeckGrid();
+        closeFolderConfigModal();
+    }
+}
+
+function enterFolderView(folderId) {
+    currentFolderId = folderId;
+    currentPage = 0; // Reset to first page of folder
+    if (!folderMacros[folderId]) {
+        folderMacros[folderId] = [];
+    }
+    renderDeckGrid();
+}
+
+// --- TTS Settings Functions (for editing widget) ---
+
+function openTtsSettingsModal(macro) {
+    activeMacroId = macro ? macro.id : null;
+
+    const backdrop = document.getElementById('tts-settings-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'flex';
+    }
+
+    // Set values if editing
+    const sizeSelect = document.getElementById('tts-size');
+    const apiKeyInput = document.getElementById('tts-api-key');
+    const blockSizeInput = document.getElementById('tts-block-size');
+    const addButton = document.getElementById('tts-settings-add-btn');
+    
+    if (sizeSelect) {
+        if (macro && macro.size) {
+            sizeSelect.value = macro.size || 1;
+        } else {
+            sizeSelect.value = 1;
+        }
+    }
+    
+    if (apiKeyInput && macro && macro.config && macro.config.apiKey) {
+        apiKeyInput.value = macro.config.apiKey;
+    } else if (apiKeyInput) {
+        apiKeyInput.value = '';
+    }
+    
+    if (blockSizeInput && macro && macro.config && macro.config.blockSize) {
+        blockSizeInput.value = macro.config.blockSize;
+    } else if (blockSizeInput) {
+        blockSizeInput.value = '1024';
+    }
+    
+    // Update button text based on whether we're editing or creating
+    if (addButton) {
+        addButton.textContent = macro ? 'Save' : 'Add to Deck';
+    }
+}
+
+function closeTtsSettingsModal() {
+    const backdrop = document.getElementById('tts-settings-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'none';
+    }
+    activeMacroId = null;
+}
+
+async function saveTtsSettings() {
+    const size = parseInt(document.getElementById('tts-size').value) || 1;
+    const apiKey = document.getElementById('tts-api-key').value.trim();
+    const blockSize = parseInt(document.getElementById('tts-block-size').value) || 1024;
+
+    if (!apiKey) {
+        alert('Please enter your Deepgram API key');
+        return;
+    }
+
+    // Get target macros array (folder or main)
+    const { macros: targetMacros, folderId } = getTargetMacros();
+
+    let targetSlot = -1;
+    let newMacro = null;
+
+    if (activeMacroId) {
+        // Updating existing macro
+        const idx = targetMacros.findIndex(m => m && m.id === activeMacroId);
+        if (idx >= 0) {
+            targetSlot = idx;
+            const existing = targetMacros[idx];
+            newMacro = {
+                ...existing,
+                size,
+                config: {
+                    ...existing.config,
+                    widgetType: 'tts',
+                    apiKey: apiKey,
+                    blockSize: blockSize
+                }
+            };
+        }
+    } else {
+        // Creating new macro
+        targetSlot = findFirstAvailableSlot(0, targetMacros);
+
+        if (targetSlot === -1) {
+            alert('Deck is full! Remove a macro first or add more pages in settings.');
+            pendingFolderTarget = null;
+            return;
+        }
+
+        // Switch to the page where the macro is being added (only if not in folder)
+        if (!folderId) {
+            const targetPage = Math.floor(targetSlot / SLOTS_PER_PAGE);
+            if (targetPage !== currentPage) {
+                currentPage = targetPage;
+            }
+        }
+
+        // Clear pending folder target after use
+        pendingFolderTarget = null;
+
+        const id = 'macro-' + Date.now();
+        newMacro = {
+            id,
+            label: 'Text to Speech',
+            type: 'library',
+            size,
+            config: {
+                widgetType: 'tts',
+                apiKey: apiKey,
+                blockSize: blockSize
+            },
+            iconData: null
+        };
+    }
+
+    if (newMacro && targetSlot >= 0) {
+        targetMacros[targetSlot] = newMacro;
+        saveMacrosAndSettings();
+        renderDeckGrid();
+        closeTtsSettingsModal();
+    }
+}
+
+// --- TTS Control Functions (for using widget) ---
+
+let ttsAudioContext = null;
+let ttsAudioSource = null;
+let ttsIsPlaying = false;
+let ttsIsPaused = false;
+let currentTtsMacro = null;
+
+async function openTtsControlModal(macro) {
+    currentTtsMacro = macro;
+    const backdrop = document.getElementById('tts-control-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'flex';
+    }
+
+    // Get API key from macro config
+    const apiKey = macro?.config?.apiKey;
+    const blockSize = macro?.config?.blockSize || 1024;
+
+    if (!apiKey) {
+        updateTtsStatus('Please configure API key in widget settings', 'error');
+        return;
+    }
+
+    // Load voices
+    await loadTtsVoices(apiKey);
+    
+    // Reset state
+    const textInput = document.getElementById('tts-text-input');
+    if (textInput) {
+        textInput.value = '';
+    }
+    updateTtsStatus('Ready', '');
+}
+
+function closeTtsControlModal() {
+    const backdrop = document.getElementById('tts-control-modal-backdrop');
+    if (backdrop) {
+        backdrop.style.display = 'none';
+    }
+    
+    // Stop any playing audio
+    stopTts();
+    currentTtsMacro = null;
+}
+
+async function loadTtsVoices(apiKey) {
+    const voiceSelect = document.getElementById('tts-voice-select');
+    if (!voiceSelect) return;
+
+    voiceSelect.innerHTML = '<option value="">Loading voices...</option>';
+
+    try {
+        // Deepgram TTS API - Get available voices
+        // Note: Deepgram's TTS API uses model names as voices
+        // Common models: nova-2, echo, etc.
+        const response = await fetch('https://api.deepgram.com/v1/projects', {
+            headers: {
+                'Authorization': `Token ${apiKey}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to authenticate with Deepgram API');
+        }
+
+        // Deepgram TTS voices/models
+        const voices = [
+            { value: 'aura-asteria-en', label: 'Aura Asteria (English)' },
+            { value: 'aura-luna-en', label: 'Aura Luna (English)' },
+            { value: 'aura-stella-en', label: 'Aura Stella (English)' },
+            { value: 'aura-athena-en', label: 'Aura Athena (English)' },
+            { value: 'aura-hera-en', label: 'Aura Hera (English)' },
+            { value: 'aura-orion-en', label: 'Aura Orion (English)' },
+            { value: 'aura-arcas-en', label: 'Aura Arcas (English)' },
+            { value: 'aura-perseus-en', label: 'Aura Perseus (English)' },
+            { value: 'aura-angus-en', label: 'Aura Angus (English)' },
+            { value: 'aura-orpheus-en', label: 'Aura Orpheus (English)' },
+            { value: 'aura-zeus-en', label: 'Aura Zeus (English)' },
+            { value: 'aura-odin-en', label: 'Aura Odin (English)' }
+        ];
+
+        voiceSelect.innerHTML = '';
+        voices.forEach(voice => {
+            const option = document.createElement('option');
+            option.value = voice.value;
+            option.textContent = voice.label;
+            voiceSelect.appendChild(option);
+        });
+
+        // Set default voice
+        if (voices.length > 0) {
+            voiceSelect.value = voices[0].value;
+        }
+    } catch (error) {
+        console.error('Error loading voices:', error);
+        voiceSelect.innerHTML = '<option value="">Error loading voices</option>';
+        updateTtsStatus('Error loading voices: ' + error.message, 'error');
+    }
+}
+
+async function playTts() {
+    const textInput = document.getElementById('tts-text-input');
+    const voiceSelect = document.getElementById('tts-voice-select');
+    
+    if (!textInput || !voiceSelect) return;
+
+    const text = textInput.value.trim();
+    if (!text) {
+        updateTtsStatus('Please enter text to speak', 'error');
+        return;
+    }
+
+    const voice = voiceSelect.value;
+    if (!voice) {
+        updateTtsStatus('Please select a voice', 'error');
+        return;
+    }
+
+    // Get API key from current macro
+    const apiKey = currentTtsMacro?.config?.apiKey;
+    const blockSize = currentTtsMacro?.config?.blockSize || 1024;
+
+    if (!apiKey) {
+        updateTtsStatus('API key not configured', 'error');
+        return;
+    }
+
+    try {
+        updateTtsStatus('Generating speech...', '');
+        
+        // Stop any existing playback
+        stopTts();
+
+        // Deepgram TTS API call
+        const response = await fetch('https://api.deepgram.com/v1/speak?model=' + encodeURIComponent(voice), {
+            method: 'POST',
+            headers: {
+                'Authorization': `Token ${apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                text: text
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.text();
+            throw new Error(`API error: ${response.status} - ${errorData}`);
+        }
+
+        // Get audio data
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+
+        // Play audio
+        ttsAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const audio = new Audio(audioUrl);
+        
+        audio.onplay = () => {
+            ttsIsPlaying = true;
+            ttsIsPaused = false;
+            updateTtsStatus('Playing...', '');
+        };
+
+        audio.onended = () => {
+            ttsIsPlaying = false;
+            ttsIsPaused = false;
+            updateTtsStatus('Finished', '');
+            URL.revokeObjectURL(audioUrl);
+        };
+
+        audio.onerror = (e) => {
+            ttsIsPlaying = false;
+            ttsIsPaused = false;
+            updateTtsStatus('Error playing audio', 'error');
+            URL.revokeObjectURL(audioUrl);
+        };
+
+        ttsAudioSource = audio;
+        await audio.play();
+        
+    } catch (error) {
+        console.error('Error playing TTS:', error);
+        updateTtsStatus('Error: ' + error.message, 'error');
+        ttsIsPlaying = false;
+        ttsIsPaused = false;
+    }
+}
+
+function pauseTts() {
+    if (ttsAudioSource && ttsIsPlaying && !ttsIsPaused) {
+        ttsAudioSource.pause();
+        ttsIsPaused = true;
+        updateTtsStatus('Paused', '');
+    } else if (ttsAudioSource && ttsIsPaused) {
+        ttsAudioSource.play();
+        ttsIsPaused = false;
+        updateTtsStatus('Playing...', '');
+    }
+}
+
+function stopTts() {
+    if (ttsAudioSource) {
+        ttsAudioSource.pause();
+        ttsAudioSource.currentTime = 0;
+        ttsAudioSource = null;
+    }
+    if (ttsAudioContext) {
+        ttsAudioContext.close();
+        ttsAudioContext = null;
+    }
+    ttsIsPlaying = false;
+    ttsIsPaused = false;
+    updateTtsStatus('Stopped', '');
+}
+
+function updateTtsStatus(message, type) {
+    const statusEl = document.getElementById('tts-status');
+    if (statusEl) {
+        statusEl.textContent = message;
+        statusEl.style.color = type === 'error' ? 'var(--text-danger)' : 'var(--text-muted)';
+    }
+}
+
+
+function exitFolderView() {
+    currentFolderId = null;
+    currentPage = 0; // Reset to first page of main view
+    renderDeckGrid();
 }
 
 // --- Central Edit Logic ---
 
 function editMacro(macro) {
-    if (!macro) return;
+    if (!macro) {
+        // If no macro provided, open empty modal to create a new one
+        openMacroModal();
+        return;
+    }
 
     // Switch to the page where this macro is located
     const macroIndex = macros.findIndex(m => m && m.id === macro.id);
@@ -3453,6 +5869,20 @@ function editMacro(macro) {
             openRssConfigModal(macro);
         } else if (macro.config && macro.config.widgetType === 'crypto') {
             openCryptoConfigModal(macro);
+        } else if (macro.config && macro.config.widgetType === 'ifttt') {
+            openIftttConfigModal(macro);
+        } else if (macro.config && macro.config.widgetType === 'stocks') {
+            openStockConfigModal(macro);
+        } else if (macro.config && macro.config.widgetType === 'weather') {
+            openWeatherConfigModal(macro);
+        } else if (macro.config && macro.config.widgetType === 'disk') {
+            openDiskConfigModal(macro);
+        } else if (macro.config && macro.config.widgetType === 'gpu') {
+            openGpuConfigModal(macro);
+        } else if (macro.config && macro.config.widgetType === 'folder') {
+            openFolderConfigModal(macro);
+        } else if (macro.config && macro.config.widgetType === 'tts') {
+            openTtsSettingsModal(macro);
         } else {
             // Other library widgets use the standard modal (restricted view)
             openMacroModal(macro);

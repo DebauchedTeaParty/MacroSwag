@@ -731,6 +731,8 @@ body {
     font-size: 24px;
     line-height: 1;
     margin-bottom: 2px;
+    text-align: center;
+    width: 100%;
 }
 
 .widget-label {
@@ -739,6 +741,8 @@ body {
     text-transform: uppercase;
     letter-spacing: 0.5px;
     font-weight: 500;
+    text-align: center;
+    width: 100%;
 }
 
 .widget-value {
@@ -940,6 +944,29 @@ body {
 .form-row select:focus,
 .form-row textarea:focus {
     border-color: rgba(96, 165, 250, 0.9);
+}
+
+/* Select dropdown styling - ensure options are visible */
+.form-row select,
+.form-select {
+    background-color: rgba(15, 23, 42, 0.9) !important;
+    color: var(--text-primary) !important;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+}
+
+.form-row select option,
+.form-select option {
+    background-color: rgba(15, 23, 42, 0.95) !important;
+    color: var(--text-primary) !important;
+    padding: 8px;
+}
+
+/* For browsers that support styling options */
+.form-row select::-ms-expand,
+.form-select::-ms-expand {
+    display: none;
 }
 
 .form-row input[type="file"] {

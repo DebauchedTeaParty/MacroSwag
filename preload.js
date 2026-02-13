@@ -32,7 +32,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onKeyRecorded: (callback) => ipcRenderer.on('key-recorded', callback),
 
   // System stats for widgets
-  getSystemStats: () => ipcRenderer.invoke('get-system-stats'),
+  getSystemStats: (options) => ipcRenderer.invoke('get-system-stats', options),
+  getAvailableDisks: () => ipcRenderer.invoke('get-available-disks'),
+  getAvailableGpus: () => ipcRenderer.invoke('get-available-gpus'),
 
   // File dialog
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
@@ -41,6 +43,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 
   // Crypto API
-  fetchCryptoPrice: (apiKey, symbol) => ipcRenderer.invoke('fetch-crypto-price', { apiKey, symbol })
+  fetchCryptoPrice: (apiKey, symbol) => ipcRenderer.invoke('fetch-crypto-price', { apiKey, symbol }),
+
+  // Stock API
+  fetchStockPrice: (apiKey, symbol) => ipcRenderer.invoke('fetch-stock-price', { apiKey, symbol }),
+
+  // Weather API
+  searchCity: (query) => ipcRenderer.invoke('search-city', query),
+  fetchWeather: (latitude, longitude) => ipcRenderer.invoke('fetch-weather', { latitude, longitude }),
+
+  // Audio Control
+  getAudioApplications: () => ipcRenderer.invoke('get-audio-applications'),
+  setApplicationVolume: (processId, volume) => ipcRenderer.invoke('set-application-volume', processId, volume),
+  setApplicationMute: (processId, isMuted) => ipcRenderer.invoke('set-application-mute', processId, isMuted),
+  muteAllAudio: () => ipcRenderer.invoke('mute-all-audio'),
+  unmuteAllAudio: () => ipcRenderer.invoke('unmute-all-audio'),
+
+  // Icon fetching
+  fetchFavicon: (url) => ipcRenderer.invoke('fetch-favicon', url),
+  extractAppIcon: (exePath) => ipcRenderer.invoke('extract-app-icon', exePath)
 });
 

@@ -4,39 +4,49 @@ A modern virtual macro controller with integrated media player controls for Wind
 
 ![MacroSwag Screenshot](https://i.ibb.co/1GcYMQ3x/Screenshot-2026-02-11-145805.png)
 
-## What is MacroSwag?
+## Features
 
-MacroSwag combines a **virtual stream deck** with **media player controls** in one beautiful application. It features:
-
-- 🎮 **Macro Grid** - 12 customizable buttons for your shortcuts, apps, and websites
-- 📊 **Widget Library** - Built-in system monitors (CPU, Memory, Disk, Network, Clock)
+- 🎮 **Macro Grid** - Customizable buttons for shortcuts, apps, and websites
+- 📊 **Widget Library** - Real-time system monitors and information widgets
 - 🎵 **Media Controller** - Control Spotify, Apple Music, Windows Media Player, and more
 - 🎨 **Beautiful Themes** - Multiple gradient themes with smooth animations
 - 🖼️ **Album Art** - Displays now-playing artwork from your media player
 - ⚡ **Real-time Updates** - Widgets and media info update automatically
+- 📁 **Folders** - Organize macros into folders for better organization
 
-## Features
+## Macro Types
 
-### Macro Types
+- **Keyboard Shortcut** - Record and execute keyboard combinations
+- **Application** - Launch programs with optional command-line arguments
+- **Website** - Quick access to your favorite URLs
 
-- **Keyboard Shortcuts** - Record and execute keyboard combinations
-- **Applications** - Launch programs with a single click
-- **Websites** - Quick access to your favorite URLs
-- **Library Widgets** - System resource monitors that update in real-time
+*More macro types are in development.*
 
-### Media Controls
+## Library Widgets
 
-- Play/Pause, Next, Previous track controls
-- Displays track title, artist, album, and source app
-- Shows album artwork (fetched from Last.fm)
-- Wavy animated progress bar
+### System Monitors
+- **CPU Usage** - Real-time CPU utilization
+- **Memory Usage** - RAM usage and available memory
+- **Disk Usage** - Disk space and activity level
+- **Network Bandwidth** - Upload/download throughput
+- **GPU Usage** - GPU utilization and memory usage
 
-### Customization
+### Information Widgets
+- **Clock** - Digital system time
+- **Weather** - Current weather conditions and temperature
+- **RSS Feed** - Scroll through RSS headlines and images
+- **Stock Ticker** - Live stock prices via Alpha Vantage
+- **Cryptoticker** - Live crypto prices via CoinMarketCap
 
-- Drag and drop to reorder macros in Edit Mode
-- Custom icons with image cropping
-- Multiple gradient themes (Default, Ocean, Sunset, Neon, Dark)
-- Persistent storage - all macros and settings saved automatically
+### Productivity Widgets
+- **Pomodoro Timer** - 25-minute work intervals with breaks
+- **IFTTT Webhook** - Trigger IFTTT automations and applets
+- **Text to Speech** - Convert text to speech using Deepgram API
+
+### Organization
+- **Folder** - Organise macros into folders
+
+*More widgets are in development.*
 
 ## Installation
 
@@ -44,6 +54,7 @@ MacroSwag combines a **virtual stream deck** with **media player controls** in o
 
 - Windows 10/11
 - Node.js 18+ and npm
+- .NET SDK (optional, for improved media detection)
 
 ### Setup
 
@@ -78,8 +89,9 @@ MacroSwag combines a **virtual stream deck** with **media player controls** in o
 ### Adding Widgets
 
 1. Click **"Library"** to open the widget library
-2. Drag a widget to any slot, or click to add to the first available slot
-3. Widgets automatically update with real-time system data
+2. Drag a widget to any slot, or click to configure and add
+3. Some widgets require configuration (API keys, settings, etc.)
+4. Widgets automatically update with real-time system data
 
 ### Editing Macros
 
