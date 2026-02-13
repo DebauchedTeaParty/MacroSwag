@@ -62,6 +62,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Icon fetching
   fetchFavicon: (url) => ipcRenderer.invoke('fetch-favicon', url),
-  extractAppIcon: (exePath) => ipcRenderer.invoke('extract-app-icon', exePath)
+  extractAppIcon: (exePath) => ipcRenderer.invoke('extract-app-icon', exePath),
+
+  // Debug messages
+  onKeySenderDebug: (callback) => ipcRenderer.on('key-sender-debug', callback)
 });
 

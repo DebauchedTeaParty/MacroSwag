@@ -8,6 +8,19 @@ namespace KeySender
     {
         [DllImport("user32.dll")]
         private static extern uint SendInput(uint nInputs, [MarshalAs(UnmanagedType.LPArray), In] INPUT[] pInputs, int cbSize);
+        
+        [DllImport("user32.dll")]
+        private static extern ushort MapVirtualKey(ushort uCode, uint uMapType);
+        
+        [DllImport("kernel32.dll")]
+        private static extern uint GetLastError();
+        
+        [DllImport("user32.dll")]
+        private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, int dwExtraInfo);
+        
+        private const uint KEYEVENTF_KEYUP_ALT = 0x0002;
+        
+        private const uint MAPVK_VK_TO_VSC = 0x00;
 
         [StructLayout(LayoutKind.Sequential)]
         public struct INPUT
@@ -29,6 +42,7 @@ namespace KeySender
         private const uint INPUT_KEYBOARD = 1;
         private const uint KEYEVENTF_KEYUP = 0x0002;
         private const uint KEYEVENTF_SCANCODE = 0x0008;
+        private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
 
         // Virtual key codes
         private const ushort VK_LWIN = 0x5B;
@@ -55,6 +69,8 @@ namespace KeySender
 
         static void SendKeyCombo(string sequence)
         {
+            Console.WriteLine("KeySender: Processing sequence: " + sequence);
+            
             // Parse SendKeys format: # = Win, + = Shift, ^ = Ctrl, % = Alt
             bool win = sequence.Contains("#");
             bool shift = sequence.Contains("+");
@@ -63,6 +79,8 @@ namespace KeySender
 
             // Extract the actual key (remove modifiers)
             string key = sequence.Replace("#", "").Replace("+", "").Replace("^", "").Replace("%", "");
+            
+            Console.WriteLine("KeySender: Win=" + win + ", Shift=" + shift + ", Ctrl=" + ctrl + ", Alt=" + alt + ", Key=" + key);
 
             // Convert key to virtual key code
             ushort vk = 0;
@@ -92,75 +110,86 @@ namespace KeySender
                 Console.Error.WriteLine("Error: Could not determine virtual key code for: " + key);
                 return;
             }
+            
+            Console.WriteLine("KeySender: Virtual key code: 0x" + vk.ToString("X"));
 
-            var inputs = new System.Collections.Generic.List<INPUT>();
-
-            // Press modifiers with small delays
+            // Use keybd_event directly - it's more reliable than SendInput for this use case
+            // Press modifiers first
             if (win)
             {
-                inputs.Add(CreateKeyInput(VK_LWIN, false));
+                Console.WriteLine("KeySender: Pressing Win key");
+                keybd_event((byte)VK_LWIN, 0, 0, 0);
+                Thread.Sleep(20);
             }
-            Thread.Sleep(10);
             if (shift)
             {
-                inputs.Add(CreateKeyInput(VK_LSHIFT, false));
+                Console.WriteLine("KeySender: Pressing Shift key");
+                keybd_event((byte)VK_LSHIFT, 0, 0, 0);
+                Thread.Sleep(20);
             }
-            Thread.Sleep(10);
             if (ctrl)
             {
-                inputs.Add(CreateKeyInput(VK_LCONTROL, false));
+                Console.WriteLine("KeySender: Pressing Ctrl key");
+                keybd_event((byte)VK_LCONTROL, 0, 0, 0);
+                Thread.Sleep(20);
             }
-            Thread.Sleep(10);
             if (alt)
             {
-                inputs.Add(CreateKeyInput(VK_LMENU, false));
+                Console.WriteLine("KeySender: Pressing Alt key");
+                keybd_event((byte)VK_LMENU, 0, 0, 0);
+                Thread.Sleep(20);
             }
-            Thread.Sleep(10);
 
             // Press main key
-            inputs.Add(CreateKeyInput(vk, false));
-            Thread.Sleep(20);
+            Console.WriteLine("KeySender: Pressing main key: " + key);
+            keybd_event((byte)vk, 0, 0, 0);
+            Thread.Sleep(50);
 
             // Release main key
-            inputs.Add(CreateKeyInput(vk, true));
-            Thread.Sleep(10);
+            Console.WriteLine("KeySender: Releasing main key: " + key);
+            keybd_event((byte)vk, 0, KEYEVENTF_KEYUP_ALT, 0);
+            Thread.Sleep(20);
 
             // Release modifiers (reverse order)
             if (alt)
             {
-                inputs.Add(CreateKeyInput(VK_LMENU, true));
+                Console.WriteLine("KeySender: Releasing Alt key");
+                keybd_event((byte)VK_LMENU, 0, KEYEVENTF_KEYUP_ALT, 0);
+                Thread.Sleep(20);
             }
-            Thread.Sleep(10);
             if (ctrl)
             {
-                inputs.Add(CreateKeyInput(VK_LCONTROL, true));
+                Console.WriteLine("KeySender: Releasing Ctrl key");
+                keybd_event((byte)VK_LCONTROL, 0, KEYEVENTF_KEYUP_ALT, 0);
+                Thread.Sleep(20);
             }
-            Thread.Sleep(10);
             if (shift)
             {
-                inputs.Add(CreateKeyInput(VK_LSHIFT, true));
+                Console.WriteLine("KeySender: Releasing Shift key");
+                keybd_event((byte)VK_LSHIFT, 0, KEYEVENTF_KEYUP_ALT, 0);
+                Thread.Sleep(20);
             }
-            Thread.Sleep(10);
             if (win)
             {
-                inputs.Add(CreateKeyInput(VK_LWIN, true));
+                Console.WriteLine("KeySender: Releasing Win key");
+                keybd_event((byte)VK_LWIN, 0, KEYEVENTF_KEYUP_ALT, 0);
+                Thread.Sleep(20);
             }
-
-            // Send all inputs at once
-            uint result = SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf(typeof(INPUT)));
-            if (result == 0)
-            {
-                Console.Error.WriteLine("Warning: SendInput returned 0 (may have failed)");
-            }
+            
+            Console.WriteLine("KeySender: Completed successfully");
         }
 
         private static INPUT CreateKeyInput(ushort vk, bool keyUp)
         {
             INPUT input = new INPUT();
             input.type = INPUT_KEYBOARD;
+            // Use virtual key code (not scan codes) - more reliable
             input.ki.wVk = vk;
-            input.ki.wScan = 0;
-            input.ki.dwFlags = keyUp ? KEYEVENTF_KEYUP : 0;
+            input.ki.wScan = 0; // Not using scan codes
+            // Set flags - no scan code flag when using virtual key codes
+            uint flags = 0;
+            if (keyUp) flags |= KEYEVENTF_KEYUP;
+            input.ki.dwFlags = flags;
             input.ki.time = 0;
             input.ki.dwExtraInfo = IntPtr.Zero;
             return input;

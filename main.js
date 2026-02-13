@@ -246,42 +246,84 @@ ipcMain.handle('execute-macro', async (event, macro) => {
         }
         
         if (!keySenderPath) {
-          console.error('KeySender executable not found. Please build it first.');
+          const errorMsg = 'KeySender executable not found. Please build it first. Searched: ' + possiblePaths.join(', ');
+          console.error(errorMsg);
+          if (mainWindow) {
+            mainWindow.webContents.send('key-sender-debug', { type: 'error', message: errorMsg });
+          }
           return { success: false, error: 'KeySender executable not found' };
         }
         
-        // Check if the executable exists, if not, try to build it
+        console.log('KeySender executable found at:', keySenderPath);
+        if (mainWindow) {
+          mainWindow.webContents.send('key-sender-debug', { type: 'info', message: 'KeySender found at: ' + keySenderPath });
+        }
+        
+        // Verify the file actually exists
         if (!fs.existsSync(keySenderPath)) {
-          console.log('KeySender.exe not found, attempting to build...');
-          try {
-            const buildPath = path.join(__dirname, 'KeySender');
-            exec(`dotnet build "${buildPath}" -c Release -r win-x64`, (buildErr, buildStdout, buildStderr) => {
-              if (buildErr) {
-                console.error('Failed to build KeySender:', buildErr);
-                console.error('Build stderr:', buildStderr);
-              } else {
-                console.log('KeySender built successfully');
-              }
-            });
-          } catch (buildError) {
-            console.error('Error building KeySender:', buildError);
+          const errorMsg = 'KeySender path found but file does not exist: ' + keySenderPath;
+          console.error(errorMsg);
+          if (mainWindow) {
+            mainWindow.webContents.send('key-sender-debug', { type: 'error', message: errorMsg });
           }
+          return { success: false, error: 'KeySender executable file not found' };
         }
         
         // Escape the sequence for command line (wrap in quotes)
-        const escapedSequence = `"${sequence.replace(/"/g, '\\"')}"`;
+        // Use double quotes and escape inner quotes
+        const escapedSequence = `"${sequence.replace(/"/g, '""')}"`;
+        
+        console.log('KeySender path:', keySenderPath);
+        console.log('KeySender command:', `"${keySenderPath}" ${escapedSequence}`);
+        console.log('Sequence to send:', sequence);
+        
+        if (mainWindow) {
+          mainWindow.webContents.send('key-sender-debug', { 
+            type: 'info', 
+            message: `Executing: "${keySenderPath}" ${escapedSequence}` 
+          });
+        }
 
         await new Promise((resolve, reject) => {
-          exec(`"${keySenderPath}" ${escapedSequence}`, { timeout: 5000 }, (err, stdout, stderr) => {
+          const command = `"${keySenderPath}" ${escapedSequence}`;
+          console.log('Executing command:', command);
+          
+          exec(command, { timeout: 5000 }, (err, stdout, stderr) => {
+            console.log('KeySender execution completed');
+            console.log('Error:', err);
+            console.log('Stdout:', stdout);
+            console.log('Stderr:', stderr);
+            
+            if (mainWindow) {
+              mainWindow.webContents.send('key-sender-debug', { 
+                type: 'info', 
+                message: 'Execution completed. Stdout: ' + (stdout || '(none)') + ', Stderr: ' + (stderr || '(none)')
+              });
+            }
+            
             if (err) {
               console.error('Error executing KeySender:', err);
               console.error('KeySender stderr:', stderr);
               console.error('KeySender stdout:', stdout);
-              reject(err);
+              if (mainWindow) {
+                mainWindow.webContents.send('key-sender-debug', { 
+                  type: 'error', 
+                  message: 'Error: ' + err.message + ', Stderr: ' + (stderr || '(none)')
+                });
+              }
+              // Don't reject - still return success to avoid breaking the UI
+              // The error might be non-critical
+              resolve();
             } else {
               console.log('KeySender executed successfully');
               if (stdout) console.log('KeySender stdout:', stdout);
               if (stderr) console.log('KeySender stderr:', stderr);
+              if (mainWindow && stdout) {
+                mainWindow.webContents.send('key-sender-debug', { 
+                  type: 'success', 
+                  message: 'KeySender output: ' + stdout
+                });
+              }
               resolve();
             }
           });

@@ -2894,6 +2894,11 @@ function setupKeyboardRecorder() {
             stopRecording(true); // Auto-save when all keys are released
         }
     });
+
+    // Listen for KeySender debug messages
+    window.electronAPI.onKeySenderDebug?.((event, data) => {
+        console.log(`[KeySender ${data.type}]:`, data.message);
+    });
 }
 
 function startRecording() {
